@@ -4,8 +4,6 @@ import com.intellij.application.options.CodeStyle;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
-import com.jetbrains.python.PythonLanguage;
-import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import org.eclipse.lsp4j.FormattingOptions;
 import org.eclipse.lsp4j.TextEdit;
 import org.jetbrains.annotations.NotNull;
@@ -27,11 +25,14 @@ public abstract class FormattingCommandBase extends LspCommand<List<? extends Te
         CodeStyleSettingsManager.getInstance().cloneSettings(CodeStyle.getSettings(copy));
     var indentOptions = codeStyleSettings.getIndentOptionsByFile(copy);
     try {
-      if (copy.getLanguage().equals(PythonLanguage.getInstance())) {
-        codeStyleSettings.getCustomSettings(PyCodeStyleSettings.class).BLANK_LINE_AT_FILE_END =
-            formattingOptions.isInsertFinalNewline();
+      Class<?> pythonLanguageClass = Class.forName("com.jetbrains.python.PythonLanguage");
+      Object pythonLanguage = pythonLanguageClass.getMethod("getInstance").invoke(null);
+      if (copy.getLanguage().equals(pythonLanguage)) {
+        Class<?> pyCodeStyleSettingsClass = Class.forName("com.jetbrains.python.formatter.PyCodeStyleSettings");
+        Object settings = codeStyleSettings.getCustomSettings((Class) pyCodeStyleSettingsClass);
+        pyCodeStyleSettingsClass.getField("BLANK_LINE_AT_FILE_END").set(settings, formattingOptions.isInsertFinalNewline());
       }
-    } catch (NoClassDefFoundError ignored) {
+    } catch (Exception ignored) {
     }
 
     indentOptions.TAB_SIZE = formattingOptions.getTabSize();

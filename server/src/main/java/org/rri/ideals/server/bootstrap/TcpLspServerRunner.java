@@ -53,6 +53,10 @@ class TcpLspServerRunner extends LspServerRunnerBase {
   }
 
   private void closeServerSocket() {
+    closeServerSocketInternal();
+  }
+
+  public void closeServerSocketInternal() {
     if (serverSocket != null) {
       try {
         LOG.info("Close language server socket port " + ((InetSocketAddress) serverSocket.getLocalAddress()).getPort());

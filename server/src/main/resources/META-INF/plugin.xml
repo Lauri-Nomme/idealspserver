@@ -40,4 +40,10 @@
 
   <extensionPoints>
   </extensionPoints>
+  <actions>
+    <action id="ideals.startLspServer" class="org.rri.ideals.server.bootstrap.StartLspServerAction" text="Start LSP Server">
+      <add-to-group group-id="ToolsMenu" anchor="first"/>
+    </action>
+  </actions>
+
 </idea-plugin>

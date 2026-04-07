@@ -7,6 +7,7 @@ import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager;
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider;
 import com.intellij.openapi.fileEditor.impl.EditorComposite;
 import com.intellij.openapi.fileEditor.impl.EditorFileSwapper;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -31,6 +32,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extends Location>, List<? extends LocationLink>>> {
+  private static final Logger LOG = Logger.getInstance(FindDefinitionCommandBase.class);
   private static final ExtensionPointName<EditorFileSwapper> EDITOR_FILE_SWAPPER_EP_NAME =
       new ExtensionPointName<>("com.intellij.editorFileSwapper");
 
@@ -160,7 +162,17 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
           assert editor.isValid();
           return new FileEditorWithProvider(editor, provider);
         }).toList();
-    return new EditorComposite(file, editorsWithProviders, project);
+    try {
+      var constructor = EditorComposite.class.getConstructor(
+          VirtualFile.class,
+          List.class,
+          Project.class
+      );
+      return (EditorComposite) constructor.newInstance(file, editorsWithProviders, project);
+    } catch (Exception e) {
+      LOG.warn("Could not create EditorComposite: " + e);
+      return null;
+    }
   }
 
 
