@@ -46,9 +46,19 @@ public final class CodeActionService {
   @NotNull
   private static CodeAction toCodeAction(@NotNull LspPath path,
                                          @NotNull Range range,
-                                         @NotNull HighlightInfo.IntentionActionDescriptor descriptor,
-                                         @NotNull String kind) {
-    return MiscUtil.with(new CodeAction(ReadAction.compute(() -> descriptor.getAction().getText())), ca -> {
+                                         @NotNull Object descriptor,
+                                          @NotNull String kind) {
+    String text;
+    final Object desc = descriptor;
+    try {
+      var method = desc.getClass().getMethod("getAction");
+      var action = method.invoke(desc);
+      text = (String) action.getClass().getMethod("getText").invoke(action);
+    } catch (Exception e) {
+      text = desc.toString();
+    }
+    final String finalText = text;
+    return MiscUtil.with(new CodeAction(ReadAction.compute(() -> finalText)), ca -> {
       ca.setKind(kind);
       ca.setData(new ActionData(path.toLspUri(), range));
     });
@@ -70,15 +80,46 @@ public final class CodeActionService {
 
           try {
             EditorUtil.withEditor(disposable, file, range.getStart(), (editor) -> {
-              final var actionInfo = ShowIntentionsPass.getActionsToShow(editor, file, true);
+              Object actionInfo;
+              try {
+                var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
+                    com.intellij.openapi.editor.Editor.class, 
+                    com.intellij.psi.PsiFile.class, 
+                    boolean.class);
+                actionInfo = method.invoke(null, editor, file, true);
+              } catch (Exception e) {
+                try {
+                  var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
+                      com.intellij.openapi.editor.Editor.class, 
+                      com.intellij.psi.PsiFile.class);
+                  actionInfo = method.invoke(null, editor, file);
+                } catch (Exception e2) {
+                  actionInfo = null;
+                }
+              }
+
+              if (actionInfo == null) {
+                result.set(Collections.emptyList());
+                return;
+              }
+
+              java.util.Collection<?> errorFixes = Collections.emptyList();
+              java.util.Collection<?> inspectionFixes = Collections.emptyList();
+              java.util.Collection<?> intentions = Collections.emptyList();
+              
+              try {
+                var errorFixesField = actionInfo.getClass().getField("errorFixesToShow");
+                var inspectionFixesField = actionInfo.getClass().getField("inspectionFixesToShow");
+                var intentionsField = actionInfo.getClass().getField("intentionsToShow");
+                errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo);
+                inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo);
+                intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
+              } catch (Exception ignored) {}
 
               final var quickFixes = diagnostics().getQuickFixes(path, range).stream()
                   .map(it -> toCodeAction(path, range, it, CodeActionKind.QuickFix));
 
-              final var intentionActions = Stream.of(
-                      actionInfo.errorFixesToShow,
-                      actionInfo.inspectionFixesToShow,
-                      actionInfo.intentionsToShow)
+              final var intentionActions = Stream.of(errorFixes, inspectionFixes, intentions)
                   .flatMap(Collection::stream)
                   .map(it -> toCodeAction(path, range, it, CodeActionKind.Refactor));
 
@@ -88,6 +129,9 @@ public final class CodeActionService {
 
               result.set(actions);
             });
+          } catch (Exception e) {
+            LOG.warn("getCodeActions error: " + e);
+            result.set(Collections.emptyList());
           } finally {
             Disposer.dispose(disposable);
           }
@@ -116,36 +160,100 @@ public final class CodeActionService {
 
       final var oldCopy = ((PsiFile) psiFile.copy());
 
-      ApplicationManager.getApplication().invokeAndWait(() -> {
-        final var editor = EditorUtil.createEditor(disposable, psiFile, actionData.getRange().getStart());
+      try {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          final var editor = EditorUtil.createEditor(disposable, psiFile, actionData.getRange().getStart());
 
-        final var quickFixes = diagnostics().getQuickFixes(path, actionData.getRange());
-        final var actionInfo = ShowIntentionsPass.getActionsToShow(editor, psiFile, true);
-
-        var actionFound = Stream.of(
-                quickFixes,
-                actionInfo.errorFixesToShow,
-                actionInfo.inspectionFixesToShow,
-                actionInfo.intentionsToShow)
-            .flatMap(Collection::stream)
-            .map(HighlightInfo.IntentionActionDescriptor::getAction)
-            .filter(it -> it.getText().equals(codeAction.getTitle()))
-            .findFirst()
-            .orElse(null);
-
-        if (actionFound == null) {
-          LOG.warn("No action descriptor found: " + codeAction.getTitle());
-          return;
-        }
-
-        CommandProcessor.getInstance().executeCommand(project, () -> {
-          if (actionFound.startInWriteAction()) {
-            WriteAction.run(() -> actionFound.invoke(project, editor, psiFile));
-          } else {
-            actionFound.invoke(project, editor, psiFile);
+          final var quickFixes = diagnostics().getQuickFixes(path, actionData.getRange());
+          
+          Object actionInfo2;
+          try {
+            var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
+                com.intellij.openapi.editor.Editor.class, 
+                com.intellij.psi.PsiFile.class, 
+                boolean.class);
+            actionInfo2 = method.invoke(null, editor, psiFile, true);
+          } catch (Exception e) {
+            try {
+              var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
+                  com.intellij.openapi.editor.Editor.class, 
+                  com.intellij.psi.PsiFile.class);
+              actionInfo2 = method.invoke(null, editor, psiFile);
+            } catch (Exception e2) {
+              actionInfo2 = null;
+            }
           }
-        }, codeAction.getTitle(), null);
-      });
+
+          if (actionInfo2 == null) {
+            return;
+          }
+
+          java.util.Collection<?> errorFixes = Collections.emptyList();
+          java.util.Collection<?> inspectionFixes = Collections.emptyList();
+          java.util.Collection<?> intentions = Collections.emptyList();
+          
+          try {
+            var errorFixesField = actionInfo2.getClass().getField("errorFixesToShow");
+            var inspectionFixesField = actionInfo2.getClass().getField("inspectionFixesToShow");
+            var intentionsField = actionInfo2.getClass().getField("intentionsToShow");
+            errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo2);
+            inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo2);
+            intentions = (java.util.Collection<?>) intentionsField.get(actionInfo2);
+          } catch (Exception ignored) {}
+
+          var actionFound = Stream.of(
+                  quickFixes,
+                  errorFixes,
+                  inspectionFixes,
+                  intentions)
+              .flatMap(Collection::stream)
+              .map(it -> (Object) it)
+              .map(obj -> {
+                try {
+                  return obj.getClass().getMethod("getAction").invoke(obj);
+                } catch (Exception e) {
+                  return obj;
+                }
+              })
+              .filter(it -> it.toString().contains(codeAction.getTitle()))
+              .findFirst()
+              .orElse(null);
+
+          if (actionFound == null) {
+            LOG.warn("No action descriptor found: " + codeAction.getTitle());
+            return;
+          }
+
+          try {
+            var startInWriteActionMethod = actionFound.getClass().getMethod("startInWriteAction");
+            boolean startInWriteAction = (boolean) startInWriteActionMethod.invoke(actionFound);
+            
+            var invokeMethod = actionFound.getClass().getMethod("invoke", com.intellij.openapi.project.Project.class, com.intellij.openapi.editor.Editor.class, com.intellij.psi.PsiFile.class);
+
+            CommandProcessor.getInstance().executeCommand(project, () -> {
+              if (startInWriteAction) {
+                WriteAction.run(() -> {
+                  try {
+                    invokeMethod.invoke(actionFound, project, editor, psiFile);
+                  } catch (Exception ex) {
+                    LOG.warn("invoke error: " + ex);
+                  }
+                });
+              } else {
+                try {
+                  invokeMethod.invoke(actionFound, project, editor, psiFile);
+                } catch (Exception ex) {
+                  LOG.warn("invoke error: " + ex);
+                }
+              }
+            }, codeAction.getTitle(), null);
+          } catch (Exception e) {
+            LOG.warn("Failed to invoke action: " + e);
+          }
+        });
+      } catch (Exception e) {
+        LOG.warn("applyCodeAction error: " + e);
+      }
 
       final var oldDoc = new Ref<Document>();
       final var newDoc = new Ref<Document>();

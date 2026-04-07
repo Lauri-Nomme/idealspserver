@@ -115,8 +115,16 @@ class DiagnosticsTask implements Runnable {
         final var range = ProperTextRange.create(0, document.getTextLength());
 
         // this shouldn't be needed but for some reason the next call fails without it
-        HighlightingSessionImpl.runInsideHighlightingSession(psiFile, null, range, false, () -> {
-        });
+        try {
+          var method = HighlightingSessionImpl.class.getMethod("runInsideHighlightingSession",
+              com.intellij.psi.PsiFile.class,
+              Object.class,
+              com.intellij.openapi.util.TextRange.class,
+              boolean.class,
+              Runnable.class);
+          method.invoke(null, psiFile, null, range, false, (Runnable) () -> {});
+        } catch (Exception ignored) {
+        }
 
         final var result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
         if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: produced items: " + result.size());
