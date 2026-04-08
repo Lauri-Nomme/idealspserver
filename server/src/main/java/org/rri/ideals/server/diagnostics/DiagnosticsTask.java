@@ -112,34 +112,20 @@ class DiagnosticsTask implements Runnable {
       try {
         final var range = ProperTextRange.create(0, document.getTextLength());
 
-        try {
-          // Try the new API first (2024.2+)
-          var createMethod = HighlightingSessionImpl.class.getMethod("getOrCreateHighlightingSession",
-              com.intellij.psi.PsiFile.class,
-              com.intellij.openapi.util.TextRange.class,
-              boolean.class,
-              Runnable.class);
-          createMethod.invoke(null, psiFile, range, false, (Runnable) () -> {});
-        } catch (Exception e1) {
-          // Fallback to old API
-          try {
-            var oldMethod = HighlightingSessionImpl.class.getMethod("runInsideHighlightingSession",
-                com.intellij.psi.PsiFile.class,
-                Object.class,
-                com.intellij.openapi.util.TextRange.class,
-                boolean.class,
-                Runnable.class);
-            oldMethod.invoke(null, psiFile, null, range, false, (Runnable) () -> {});
-          } catch (Exception e2) {
-            LOG.warn("Could not create highlighting session: " + e2.getMessage());
-          }
-        }
+        // Use 2024.2 public API: runInsideHighlightingSession(PsiFile, EditorColorsScheme, ProperTextRange, boolean, Consumer)
+        HighlightingSessionImpl.runInsideHighlightingSession(
+            psiFile, 
+            null, // EditorColorsScheme
+            range, 
+            false, // canChangeFileSilently
+            session -> {} // empty consumer - we just need the session created
+        );
 
         java.util.List<HighlightInfo> result;
         try {
           result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-        } catch (IllegalStateException e) {
-          LOG.warn("No highlighting session available: " + e.getMessage());
+        } catch (Exception e) {
+          LOG.warn("Highlighting error: " + e.getMessage());
           result = java.util.Collections.emptyList();
         }
         
