@@ -110,23 +110,39 @@ class DiagnosticsTask implements Runnable {
     return ProgressManager.getInstance().runProcess(() -> {
 
       try {
-        // ensure we get fresh results
-        //PsiDocumentManager.getInstance(document).commitAllDocuments() // TODO do we really need this?
         final var range = ProperTextRange.create(0, document.getTextLength());
 
-        // this shouldn't be needed but for some reason the next call fails without it
         try {
-          var method = HighlightingSessionImpl.class.getMethod("runInsideHighlightingSession",
+          // Try the new API first (2024.2+)
+          var createMethod = HighlightingSessionImpl.class.getMethod("getOrCreateHighlightingSession",
               com.intellij.psi.PsiFile.class,
-              Object.class,
               com.intellij.openapi.util.TextRange.class,
               boolean.class,
               Runnable.class);
-          method.invoke(null, psiFile, null, range, false, (Runnable) () -> {});
-        } catch (Exception ignored) {
+          createMethod.invoke(null, psiFile, range, false, (Runnable) () -> {});
+        } catch (Exception e1) {
+          // Fallback to old API
+          try {
+            var oldMethod = HighlightingSessionImpl.class.getMethod("runInsideHighlightingSession",
+                com.intellij.psi.PsiFile.class,
+                Object.class,
+                com.intellij.openapi.util.TextRange.class,
+                boolean.class,
+                Runnable.class);
+            oldMethod.invoke(null, psiFile, null, range, false, (Runnable) () -> {});
+          } catch (Exception e2) {
+            LOG.warn("Could not create highlighting session: " + e2.getMessage());
+          }
         }
 
-        final var result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+        java.util.List<HighlightInfo> result;
+        try {
+          result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+        } catch (IllegalStateException e) {
+          LOG.warn("No highlighting session available: " + e.getMessage());
+          result = java.util.Collections.emptyList();
+        }
+        
         if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: produced items: " + result.size());
         return result;
       } catch (IndexNotReadyException e) {
