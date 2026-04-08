@@ -26,6 +26,7 @@
   <!-- Extension points defined by the plugin.
        Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
   <extensions defaultExtensionNs="com.intellij">
+    <notificationGroup id="IdeaLS" displayType="BALLOON" />
     <appStarter implementation="org.rri.ideals.server.bootstrap.LspServerStarter" id="lsp-server"/>
     <applicationService serviceImplementation="org.rri.ideals.server.ProjectService"/>
 
