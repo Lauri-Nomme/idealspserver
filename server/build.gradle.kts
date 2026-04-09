@@ -20,12 +20,23 @@ dependencies {
 
 // Configure Gradle IntelliJ Plugin - read more: https://github.com/JetBrains/gradle-intellij-plugin
 intellij {
-  version.set("2024.2")
-  type.set("IC") // Target IDE Platform
+  localPath.set("/data/clion/clion-2026.1")
+  type.set("IC") // IntelliJ IDEA
   pluginsRepositories {
     marketplace()
   }
-  plugins.set(listOf("java"))
+  plugins.set(listOf("cidr-clangd"))
+}
+
+tasks.register<RunIdeTask>("runIdeHeadless") {
+  maxHeapSize = "4G"
+  jvmArgs = listOf(
+    "-Djava.awt.headless=true",
+    "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED",
+    "--add-exports=java.desktop/sun.awt.windows=ALL-UNNAMED",
+    "--add-exports=java.desktop/sun.awt.X11=ALL-UNNAMED",
+  )
+  args = listOf("lsp-server", "tcp", "8989")
 }
 
 tasks.register<RunIdeTask>("plainIdea") {
@@ -72,12 +83,6 @@ tasks {
     }
   }
 
-  getByName<RunIdeTask>("runIde") {
-    maxHeapSize = "4G"
-    args = listOf("lsp-server", "tcp", "8989")
-    systemProperty("java.awt.headless", true)
-  }
-
   // Set the JVM compatibility versions
   withType<JavaCompile> {
     sourceCompatibility = "17"
@@ -86,8 +91,8 @@ tasks {
 
   patchPluginXml {
     version.set(System.getenv("IDEALS_VERSION"))
-    sinceBuild.set("223")
-    untilBuild.set("261.*")
+    sinceBuild.set("242")
+    untilBuild.set("262.*")
   }
 
   signPlugin {
