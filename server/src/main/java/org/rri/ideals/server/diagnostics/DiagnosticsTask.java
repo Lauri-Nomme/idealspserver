@@ -110,17 +110,7 @@ class DiagnosticsTask implements Runnable {
     return ProgressManager.getInstance().runProcess(() -> {
 
       try {
-        final var range = ProperTextRange.create(0, document.getTextLength());
-
-        // Use 2024.2 public API: runInsideHighlightingSession(PsiFile, EditorColorsScheme, ProperTextRange, boolean, Consumer)
-        HighlightingSessionImpl.runInsideHighlightingSession(
-            psiFile, 
-            null, // EditorColorsScheme
-            range, 
-            false, // canChangeFileSilently
-            session -> {} // empty consumer - we just need the session created
-        );
-
+        // Just run main passes directly - the daemon handles session internally
         java.util.List<HighlightInfo> result;
         try {
           result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
