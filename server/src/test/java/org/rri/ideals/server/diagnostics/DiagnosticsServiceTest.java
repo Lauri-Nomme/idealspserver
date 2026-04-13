@@ -1,6 +1,6 @@
 package org.rri.ideals.server.diagnostics;
 
-import com.jetbrains.python.PythonFileType;
+// import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.Diagnostic;
 import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.junit.Assert;
@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 @RunWith(JUnit4.class)
 public class DiagnosticsServiceTest extends DiagnosticsTestBase {
 
+/*
   @Test
   public void testSimpleSyntaxErrors() {
     final var file = myFixture.configureByText(PythonFileType.INSTANCE, "1 ! 2");
@@ -37,6 +38,7 @@ public class DiagnosticsServiceTest extends DiagnosticsTestBase {
       Assert.assertEquals(TestUtil.newRange(0, 3, 0, 4), it.getRange());
     });
   }
+*/
 
   @Test
   public void testKotlinErrors() {

@@ -22,10 +22,12 @@ public class TypeDefinitionCommandTest extends ReferencesCommandTestBase<TypeDef
     checkReferencesByDirectory("java/project-type-definition");
   }
 
+/*
   @Test
   public void testTypeDefinitionPython() {
     checkReferencesByDirectory("python/project-type-definition");
   }
+*/
 
   @Override
   protected @NotNull TypeDefinitionTestGenerator getGenerator(@NotNull TestEngine engine) {

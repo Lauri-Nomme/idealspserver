@@ -4,7 +4,7 @@ import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.jetbrains.python.PythonFileType;
+// import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.TextEdit;
 import org.jetbrains.annotations.NotNull;
@@ -142,6 +142,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
         ));
   }
 
+/*
   @Test
   public void testNotInsertSecondColon() {
     Assertions.assertEquals(List.of(
@@ -183,6 +184,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
             PythonFileType.INSTANCE, new Position(1, 8)
         ));
   }
+*/
 
 
   @NotNull

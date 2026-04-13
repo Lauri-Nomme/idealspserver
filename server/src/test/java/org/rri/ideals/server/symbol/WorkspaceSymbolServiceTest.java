@@ -58,6 +58,7 @@ public class WorkspaceSymbolServiceTest extends LspLightBasePlatformTestCase {
     assertEquals(answer, result);
   }
 
+/*
   @Test
   public void testWorkspaceSymbolPython() {
     final var virtualFile = myFixture.copyDirectoryToProject("python/project1", "");
@@ -93,6 +94,7 @@ public class WorkspaceSymbolServiceTest extends LspLightBasePlatformTestCase {
 
     assertEquals(answer, result);
   }
+*/
 
   @Test
   public void testWorkspaceSymbolKotlin() {

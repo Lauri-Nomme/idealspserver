@@ -12,6 +12,14 @@ import java.util.List;
 
 import static org.rri.ideals.server.TestUtil.newTextEdit;
 
+/**
+ * Test disabled: Python plugin not available for IntelliJ Platform 2026.1.
+ *
+ * See https://plugins.jetbrains.com/docs/intellij/build-number-ranges.html and related docs.
+ *
+ * To re-enable, update when a python-community-plugin build >=261.x is published.
+ */
+/*
 @RunWith(JUnit4.class)
 public class RenameCommandPythonTest extends RenameCommandTestBase {
   @Override
@@ -86,3 +94,4 @@ public class RenameCommandPythonTest extends RenameCommandTestBase {
     checkRename(answer, pos, newName);
   }
 }
+*/

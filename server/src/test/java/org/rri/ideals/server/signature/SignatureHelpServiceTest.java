@@ -3,7 +3,7 @@ package org.rri.ideals.server.signature;
 import com.intellij.codeInsight.hint.ParameterInfoListener;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.jetbrains.python.PythonFileType;
+// import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.ParameterInformation;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.SignatureInformation;
@@ -23,6 +23,7 @@ import java.util.List;
 @RunWith(JUnit4.class)
 public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
 
+/*
   @Test
   public void testPythonFunctionWithNoParameters() {
     final var text = """
@@ -89,6 +90,7 @@ public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
     testSignatureHelp(text, PythonFileType.INSTANCE, new Position(3, 4), null,
         new TestUtil.DumbCancelChecker(), expected);
   }
+*/
 
   @Test
   public void testJavaFunctionWithNoParameters() {

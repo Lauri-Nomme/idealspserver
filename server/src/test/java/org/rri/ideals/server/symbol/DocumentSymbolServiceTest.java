@@ -86,6 +86,7 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
     checkDocumentSymbols(answers, virtualFile.findChild("DocumentSymbol.java"));
   }
 
+/*
   @Test
   public void testDocumentSymbolPython() {
     final var virtualFile = myFixture.copyDirectoryToProject("python/project1", "");
@@ -133,6 +134,7 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
     final var answers = arrayList(docSymFile);
     checkDocumentSymbols(answers, virtualFile.findChild("documentSymbol.py"));
   }
+*/
 
   @Test
   public void testDocumentSymbolKotlin() {

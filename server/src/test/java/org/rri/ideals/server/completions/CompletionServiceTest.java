@@ -7,7 +7,7 @@ import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.TestModeFlags;
-import com.jetbrains.python.PythonFileType;
+// import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.CancelChecker;
 import org.jetbrains.annotations.NotNull;
@@ -70,6 +70,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
                                       @Nullable Set<CompletionItem> expectedItems) {
   }
 
+/*
   @Test
   public void testCompletionForKeywordAndFunctionPython() {
     var expected = Set.of(CompletionServiceTestUtil.createCompletionItem(
@@ -89,6 +90,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
 
     testWithEngine(new CompletionTestParams("python-function-and-keyword-project", null, null, expected));
   }
+*/
 
   @Test
   public void testCompletionForKeywordAndFunctionJava() {
@@ -123,6 +125,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
     testWithEngine(new CompletionTestParams("java-class", null, null, expected));
   }
 
+/*
   @Test
   public void testCompletionResolveFunctionsWithParameters() {
     //noinspection UnnecessaryUnicodeEscape
@@ -182,6 +185,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
     runWithTemplateFlags(() -> testWithEngine(new CompletionTestParams("python-if",
         completionItem -> Objects.equals(completionItem.getLabel(), "if"), null, null)));
   }
+*/
 
   @Test
   public void testJavaForiLiveTemplate() {
@@ -287,6 +291,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
     }
   }
 
+/*
   @Test
   public void testCompletionCancellation() {
     var cancelChecker = new AlwaysTrueCancelChecker();
@@ -298,6 +303,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
         CancellationException.class,
         () -> getCompletionListAtPosition(psiFile, new Position(0, 0), cancelChecker));
   }
+*/
 
   @Test
   public void testResolveCancellation() {

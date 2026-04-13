@@ -1,7 +1,7 @@
 package org.rri.ideals.server.formatting;
 
 import com.intellij.openapi.fileTypes.FileType;
-import com.jetbrains.python.PythonFileType;
+// import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.TextEdit;
@@ -21,6 +21,7 @@ import java.util.List;
 @RunWith(JUnit4.class)
 public class FormattingCommandTest extends LspLightBasePlatformTestCase {
 
+/*
   @Test
   public void testEmptyFileFormatting() {
     Assertions.assertEquals(getEditsByText("", "", PythonFileType.INSTANCE), List.of());
@@ -157,6 +158,7 @@ public class FormattingCommandTest extends LspLightBasePlatformTestCase {
             new Range(new Position(0, 0), new Position(0, 14)))
     );
   }
+*/
 
   @SuppressWarnings("SameParameterValue")
   @NotNull

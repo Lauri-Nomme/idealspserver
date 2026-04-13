@@ -45,6 +45,7 @@ public class DocumentHighlightCommandTest extends ReferencesCommandTestBase {
     checkHighlight(answers, new Position(2, 14), path);
   }
 
+/*
   @Test
   public void testDocumentHighlightPython() {
     var virtualFile = myFixture.copyDirectoryToProject("python/project1", "");
@@ -68,6 +69,7 @@ public class DocumentHighlightCommandTest extends ReferencesCommandTestBase {
     answers = Set.of(new DocumentHighlight(TestUtil.newRange(15, 5, 15, 14), DocumentHighlightKind.Text));
     checkHighlight(answers, new Position(15, 5), path);
   }
+*/
 
   private void checkHighlight(@NotNull Set<@NotNull DocumentHighlight> answers,
                                 @NotNull Position pos,
