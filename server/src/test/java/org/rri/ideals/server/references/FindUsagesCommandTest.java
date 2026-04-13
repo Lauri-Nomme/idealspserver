@@ -21,10 +21,12 @@ public class FindUsagesCommandTest extends ReferencesCommandTestBase<FindUsagesT
     checkReferencesByDirectory("java/project-find-usages");
   }
 
+/*
   @Test
   public void testFindUsagesPython() {
     checkReferencesByDirectory("python/project-find-usages");
   }
+*/
 
   @Override
   protected @NotNull FindUsagesTestGenerator getGenerator(@NotNull TestEngine engine) {

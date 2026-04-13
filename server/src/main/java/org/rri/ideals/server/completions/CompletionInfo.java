@@ -22,6 +22,8 @@ import com.intellij.reference.SoftReference;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import com.intellij.openapi.client.ClientProjectSession;
+import com.intellij.openapi.client.ClientSessionsUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +65,9 @@ public class CompletionInfo {
         process,
         finalOffsets);
     arranger = new LookupArrangerImpl(parameters);
-    lookup = new LookupImpl(project, editor, arranger);
+    // Use the ClientProjectSession as required by IntelliJ 2026+
+    ClientProjectSession session = ClientSessionsUtil.getCurrentSession(project);
+    lookup = new LookupImpl(session, editor, arranger);
   }
   @NotNull
   public CompletionInitializationContext getInitContext() {
@@ -91,7 +95,7 @@ public class CompletionInfo {
 
     /* todo
     Add completion results sorting
-   */
+    */
     void addElement(@NotNull CompletionResult completionItem) {
       var presentation = new LookupElementPresentation();
       ReadAction.run(() -> completionItem.getLookupElement().renderElement(presentation));
@@ -124,13 +128,6 @@ public class CompletionInfo {
     return lookup;
   }
 
-  /*
-   This method is analogue for insertDummyIdentifier in CompletionInitializationUtil.java from idea 201.6668.113.
-   There is CompletionProcessEx in ideas source code, that can't be reached publicly,
-   but it uses only getHostOffsets and registerChildDisposable, that we can determine by ourselves.
-   So solution is to copy that code with our replacement for getHostOffsets and registerChildDisposable calls.
-   Other private methods from CompletionInitializationUtil are copied below too.
-  */
   @NotNull
   private OffsetsInFile insertDummyIdentifier(
       @NotNull CompletionInitializationContext initContext,
@@ -157,7 +154,7 @@ public class CompletionInfo {
     );
 
     var copyOffsets = topLevelOffsets.replaceInCopy(
-        hostCopy, startOffset, endOffset, dummyIdentifier).get();
+        hostCopy, startOffset, endOffset, dummyIdentifier).ensureUpdatedAndGetNewOffsets();
     if (!hostCopy.isValid()) {
       throw new IllegalStateException("PsiFile copy is not valid anymore");
     }

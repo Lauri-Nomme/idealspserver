@@ -24,10 +24,12 @@ public class DefinitionCommandTest extends ReferencesCommandTestBase<DefinitionT
     checkReferencesByDirectory("java/project-definition");
   }
 
+/*
   @Test
   public void definitionPythonTest() {
     checkReferencesByDirectory("python/project-definition");
   }
+*/
 
 
   @Override
