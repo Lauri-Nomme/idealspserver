@@ -38,6 +38,27 @@ def recv_message(sock):
     return json.loads(body.decode())
 
 
+def recv_response(sock, expected_id):
+    """Receive response(s) including progress notifications."""
+    while True:
+        resp = recv_message(sock)
+        if resp is None:
+            break
+
+        # Skip progress notifications
+        if resp.get("method") in [
+            "window/workDoneProgress",
+            "$/progress",
+            "idea/indexFinished",
+        ]:
+            continue
+
+        if resp.get("id") == expected_id:
+            return resp
+
+    return None
+
+
 def send_request(sock, method, params, req_id):
     """Send a JSON-RPC request."""
     req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
@@ -102,20 +123,85 @@ def test_open_file(sock, file_path):
 def test_document_symbols(sock, file_path):
     """Test document symbols."""
     print("Testing document symbols...")
-    resp = send_request(
+    resp = send_and_recv_response(
         sock,
         "textDocument/documentSymbol",
         {"textDocument": {"uri": f"file://{file_path}"}},
         2,
     )
 
-    if "result" in resp and resp["result"]:
+    if resp and "result" in resp and resp["result"]:
         symbols = resp["result"]
         print(f"  OK - Found {len(symbols)} symbols")
         for s in symbols[:5]:
-            print(f"    - {s.get('name')} ({s.get('kind')})")
+            if isinstance(s, dict):
+                name = s.get("right", {}).get("name", s.get("name", "unknown"))
+                kind = s.get("right", {}).get("kind", "unknown")
+                print(f"    - {name} (kind: {kind})")
+            else:
+                print(f"    - {s}")
     else:
-        print(f"  Not implemented or empty")
+        print(f"  Not implemented or empty: {resp}")
+    return True
+
+
+def test_definition(sock, file_path, line, character):
+    """Test go to definition."""
+    print(f"Testing definition at line {line}, char {character}...")
+    resp = send_and_recv_response(
+        sock,
+        "textDocument/definition",
+        {
+            "textDocument": {"uri": f"file://{file_path}"},
+            "position": {"line": line, "character": character},
+        },
+        3,
+    )
+
+    if resp and "result" in resp and resp["result"]:
+        locs = resp["result"]
+        print(f"  OK - Found {len(locs)} definitions")
+        for loc in locs[:3]:
+            print(f"    - {loc.get('targetUri', 'unknown')}")
+    else:
+        print(f"  Not found or not implemented")
+    return True
+
+
+def test_references(sock, file_path, line, character):
+    """Test find references."""
+    print(f"Testing references at line {line}, char {character}...")
+    resp = send_and_recv_response(
+        sock,
+        "textDocument/references",
+        {
+            "textDocument": {"uri": f"file://{file_path}"},
+            "position": {"line": line, "character": character},
+            "context": {"includeDeclaration": True},
+        },
+        4,
+    )
+
+    if resp and "result" in resp and resp["result"]:
+        refs = resp["result"]
+        print(f"  OK - Found {len(refs)} references")
+    else:
+        print(f"  Not found or not implemented")
+    return True
+
+
+def test_workspace_symbols(sock, query):
+    """Test workspace symbols."""
+    print(f"Testing workspace symbols (query: {query})...")
+    resp = send_and_recv_response(sock, "workspace/symbol", {"query": query}, 5)
+
+    if resp and "result" in resp and resp["result"]:
+        symbols = resp["result"]
+        print(f"  OK - Found {len(symbols)} symbols")
+        for s in symbols[:5]:
+            print(f"    - {s.get('name')}")
+    else:
+        print(f"  Not found or not implemented")
     return True
 
 
