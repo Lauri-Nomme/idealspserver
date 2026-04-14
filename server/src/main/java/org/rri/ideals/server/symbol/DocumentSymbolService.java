@@ -83,9 +83,13 @@ final public class DocumentSymbolService {
   private StructureViewTreeElement getViewTreeElement(@NotNull PsiFile psiFile,
                                                       @NotNull Disposable parentDisposable) {
 
-    var fileEditor = WriteCommandAction.runWriteCommandAction(project,
+    FileEditor fileEditor = WriteCommandAction.runWriteCommandAction(project,
         (ThrowableComputable<FileEditor, RuntimeException>)
             () -> TextEditorProvider.getInstance().createEditor(project, psiFile.getVirtualFile()));
+    if (fileEditor == null) {
+      LOG.warn("Cannot create editor for file: " + psiFile.getVirtualFile().getPath());
+      return null;
+    }
     Disposer.register(parentDisposable, fileEditor);
     StructureViewBuilder builder = ReadAction.compute(fileEditor::getStructureViewBuilder);
     if (builder == null) {

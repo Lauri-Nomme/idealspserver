@@ -31,7 +31,10 @@ public class VoidCompletionProcess extends AbstractProgressIndicatorExBase imple
     synchronized (myLock) {
       // Idea developer says: "avoid registering stuff on an indicator being disposed concurrently"
       checkCanceled();
-      Disposer.register(this, child.get());
+      var childDisposable = child.get();
+      if (childDisposable != null) {
+        Disposer.register(this, childDisposable);
+      }
     }
   }
 }
