@@ -59,6 +59,14 @@ def recv_response(sock, expected_id):
     return None
 
 
+def send_and_recv_response(sock, method, params, req_id):
+    """Send a request and wait for response, skipping progress notifications."""
+    req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+    content = json.dumps(req)
+    sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+    return recv_response(sock, req_id)
+
+
 def send_request(sock, method, params, req_id):
     """Send a JSON-RPC request."""
     req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
