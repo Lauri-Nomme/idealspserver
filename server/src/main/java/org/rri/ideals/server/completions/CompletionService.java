@@ -334,15 +334,24 @@ final public class CompletionService implements Disposable {
               )
           ), new LspProgressIndicator(cancelChecker));
       ReadAction.run(() -> {
-        var document = MiscUtil.getDocument(psiFile);
-        assert document != null;
-        resultRef.set(convertLookupElementsWithMatcherToCompletionItems(
-            lookupElementsWithMatcherRef.get(), document, position, completionDataVersionRef.get()));
+        try {
+          var document = MiscUtil.getDocument(psiFile);
+          if (document == null) return;
+          var lookupElements = lookupElementsWithMatcherRef.get();
+          var dataVersion = completionDataVersionRef.get();
+          if (lookupElements != null && dataVersion != null) {
+            resultRef.set(convertLookupElementsWithMatcherToCompletionItems(
+                lookupElements, document, position, dataVersion));
+          }
+        } catch (Exception e) {
+          LOG.warn("Error computing completions", e);
+        }
       });
     } finally {
       WriteCommandAction.runWriteCommandAction(project, () -> Disposer.dispose(process));
     }
-    return resultRef.get();
+    var result = resultRef.get();
+    return result != null ? result : List.of();
   }
 
   @NotNull
