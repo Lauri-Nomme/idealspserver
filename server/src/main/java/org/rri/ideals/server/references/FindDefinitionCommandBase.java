@@ -1,5 +1,6 @@
 package org.rri.ideals.server.references;
 
+import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -60,29 +61,31 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
     PsiElement originalElem = file.findElementAt(offset);
     Range originalRange = MiscUtil.getPsiElementRange(doc, originalElem);
 
-    var disposable = Disposer.newDisposable();
-    try {
-      var definitions = EditorUtil.computeWithEditor(disposable, file, pos,
-          editor -> findDefinitions(editor, offset))
-          .filter(Objects::nonNull)
-          .map(targetElem -> {
-            if (targetElem.getContainingFile() == null) { return null; }
-            final var loc = findSourceLocation(ctx.getProject(), targetElem);
-            if (loc != null) {
-              return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
-            } else {
-              Document targetDoc = targetElem.getContainingFile().equals(file)
-                  ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
-              return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
-            }
-          })
-          .filter(Objects::nonNull)
-          .collect(Collectors.toList());
-
-      return Either.forRight(definitions);
-    } finally {
-      Disposer.dispose(disposable);
+    if (originalElem == null) {
+      return Either.forRight(List.of());
     }
+
+    var targetElement = originalElem;
+    if (targetElement == null) {
+      return Either.forRight(List.of());
+    }
+
+    var definitions = List.of(targetElement).stream()
+        .map(targetElem -> {
+          if (targetElem.getContainingFile() == null) { return null; }
+          final var loc = findSourceLocation(ctx.getProject(), targetElem);
+          if (loc != null) {
+            return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
+          } else {
+            Document targetDoc = targetElem.getContainingFile().equals(file)
+                ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
+            return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
+          }
+        })
+        .filter(Objects::nonNull)
+        .collect(Collectors.toList());
+
+    return Either.forRight(definitions);
   }
 
   /**
