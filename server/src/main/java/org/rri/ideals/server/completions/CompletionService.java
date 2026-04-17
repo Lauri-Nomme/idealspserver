@@ -303,6 +303,7 @@ final public class CompletionService implements Disposable {
                   position,
                   (editor) -> {
                     var compInfo = new CompletionInfo(editor, project);
+                    var actualProcess = compInfo.getProcess();
                     var ideaCompService = com.intellij.codeInsight.completion.CompletionService.getCompletionService();
                     assert ideaCompService != null;
 
