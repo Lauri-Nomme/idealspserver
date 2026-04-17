@@ -78,9 +78,26 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
     }
 
     int offset = MiscUtil.positionToOffset(doc, pos);
-    var target = file.findElementAt(offset);
+    var element = file.findElementAt(offset);
 
-    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", target=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
+
+    if (element == null) {
+      return List.of();
+    }
+
+    // Walk up to find PsiNamedElement (class, method, field)
+    var target = element;
+    while (target != null && !(target instanceof com.intellij.psi.PsiNamedElement)) {
+      target = target.getParent();
+    }
+
+    // If still no target, use original element
+    if (target == null) {
+      target = element;
+    }
+
+    LOG.warn("FindUsagesCommand.execute: target=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
 
     if (target == null) {
       return List.of();
