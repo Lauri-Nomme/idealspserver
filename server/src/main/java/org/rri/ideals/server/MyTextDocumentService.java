@@ -80,6 +80,7 @@ public class MyTextDocumentService implements TextDocumentService {
 
   @Override
   public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(DefinitionParams params) {
+    LOG.warn("definition() called for " + params.getTextDocument().getUri() + " at " + params.getPosition());
     return new FindDefinitionCommand(params.getPosition())
         .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
   }
@@ -98,6 +99,7 @@ public class MyTextDocumentService implements TextDocumentService {
 
   @Override
   public CompletableFuture<List<? extends Location>> references(ReferenceParams params) {
+    LOG.warn("references() called for " + params.getTextDocument().getUri() + " at " + params.getPosition() + ", includeDeclaration=" + params.getContext().isIncludeDeclaration());
     return new FindUsagesCommand(params.getPosition())
         .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
   }

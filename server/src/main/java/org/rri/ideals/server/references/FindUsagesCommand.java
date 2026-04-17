@@ -68,25 +68,32 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
     return true;
   }
 
-  @Override
+@Override
   protected @NotNull List<? extends Location> execute(@NotNull ExecutorContext ctx) {
     PsiFile file = ctx.getPsiFile();
     Document doc = MiscUtil.getDocument(file);
     if (doc == null) {
       return List.of();
     }
-    var disposable = Disposer.newDisposable();
-    try {
-      var target = EditorUtil.computeWithEditor(disposable, file, pos,
-          editor -> TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted()));
 
-      if (target == null) {
-        return List.of();
-      }
-      return findUsages(ctx.getProject(), target, ctx.getCancelToken());
-    } finally {
-      Disposer.dispose(disposable);
+    int offset = MiscUtil.positionToOffset(doc, pos);
+    var target = file.findElementAt(offset);
+
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", target=" + target);
+
+    if (target == null) {
+      return List.of();
     }
+
+    var results = ReferencesSearch.search(target).findAll();
+    LOG.warn("FindUsagesCommand.execute: found " + results.size() + " references");
+
+    return results.stream()
+        .map(PsiReference::getElement)
+        .map(MiscUtil::psiElementToLocation)
+        .filter(Objects::nonNull)
+        .distinct()
+        .collect(Collectors.toList());
   }
 
   private static @NotNull List<@NotNull Location> findUsages(@NotNull Project project,
