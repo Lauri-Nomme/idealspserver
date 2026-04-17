@@ -14,6 +14,7 @@ import org.rri.ideals.server.diagnostics.DiagnosticsService;
 import org.rri.ideals.server.formatting.FormattingCommand;
 import org.rri.ideals.server.formatting.OnTypeFormattingCommand;
 import org.rri.ideals.server.references.*;
+import org.rri.ideals.server.hover.HoverCommand;
 import org.rri.ideals.server.rename.RenameCommand;
 import org.rri.ideals.server.signature.SignatureHelpService;
 import org.rri.ideals.server.symbol.DocumentSymbolService;
@@ -98,6 +99,12 @@ public class MyTextDocumentService implements TextDocumentService {
   @Override
   public CompletableFuture<List<? extends Location>> references(ReferenceParams params) {
     return new FindUsagesCommand(params.getPosition())
+        .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
+  }
+
+  @Override
+  public CompletableFuture<Hover> hover(HoverParams params) {
+    return new HoverCommand(params.getPosition())
         .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
   }
 

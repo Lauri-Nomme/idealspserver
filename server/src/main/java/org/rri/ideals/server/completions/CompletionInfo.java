@@ -41,10 +41,12 @@ public class CompletionInfo {
   private final LookupArrangerImpl arranger;
   @NotNull
   private final LookupImpl lookup;
+  @NotNull
+  private final VoidCompletionProcess process;
 
   @SuppressWarnings("UnstableApiUsage")
   public CompletionInfo(@NotNull Editor editor, @NotNull Project project) {
-    VoidCompletionProcess process = new VoidCompletionProcess();
+    process = new VoidCompletionProcess();
     initContext = CompletionInitializationUtil.createCompletionInitializationContext(
         project,
         editor,
@@ -53,21 +55,20 @@ public class CompletionInfo {
         CompletionType.BASIC);
     assert initContext != null;
 
-    var topLevelOffsets =
-        new OffsetsInFile(initContext.getFile(), initContext.getOffsetMap()).toTopLevelFile();
-    PsiDocumentManager.getInstance(initContext.getProject()).commitAllDocuments();
-    var hostCopyOffsets =
-        insertDummyIdentifier(initContext, process, topLevelOffsets);
-
-    OffsetsInFile finalOffsets = CompletionInitializationUtil.toInjectedIfAny(initContext.getFile(), hostCopyOffsets);
+    var file = initContext.getFile();
+    var offsetMap = initContext.getOffsetMap();
     parameters = CompletionInitializationUtil.createCompletionParameters(
         initContext,
         process,
-        finalOffsets);
+        new OffsetsInFile(file, offsetMap));
     arranger = new LookupArrangerImpl(parameters);
-    // Use the ClientProjectSession as required by IntelliJ 2026+
     ClientProjectSession session = ClientSessionsUtil.getCurrentSession(project);
     lookup = new LookupImpl(session, editor, arranger);
+  }
+
+  @NotNull
+  public VoidCompletionProcess getProcess() {
+    return process;
   }
   @NotNull
   public CompletionInitializationContext getInitContext() {
@@ -133,32 +134,7 @@ public class CompletionInfo {
       @NotNull CompletionInitializationContext initContext,
       @NotNull VoidCompletionProcess indicator,
       @NotNull OffsetsInFile topLevelOffsets) {
-    var hostEditor = InjectedLanguageEditorUtil.getTopLevelEditor(initContext.getEditor());
-    var hostMap = topLevelOffsets.getOffsets();
-    boolean forbidCaching = false;
-
-    var hostCopy = obtainFileCopy(topLevelOffsets.getFile(), forbidCaching);
-    var copyDocument = hostCopy.getViewProvider().getDocument();
-    var dummyIdentifier = initContext.getDummyIdentifier();
-    var startOffset = hostMap.getOffset(CompletionInitializationContext.START_OFFSET);
-    var endOffset = hostMap.getOffset(CompletionInitializationContext.SELECTION_END_OFFSET);
-
-    indicator.registerChildDisposable(
-        () -> new OffsetTranslator(
-            hostEditor.getDocument(),
-            initContext.getFile(),
-            copyDocument,
-            startOffset,
-            endOffset,
-            dummyIdentifier)
-    );
-
-    var copyOffsets = topLevelOffsets.replaceInCopy(
-        hostCopy, startOffset, endOffset, dummyIdentifier).ensureUpdatedAndGetNewOffsets();
-    if (!hostCopy.isValid()) {
-      throw new IllegalStateException("PsiFile copy is not valid anymore");
-    }
-    return copyOffsets;
+    return topLevelOffsets;
   }
   @NotNull
   private static PsiFile obtainFileCopy(@NotNull PsiFile file,

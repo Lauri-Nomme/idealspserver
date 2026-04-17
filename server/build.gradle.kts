@@ -1,3 +1,5 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
     id("java")
     id("org.jetbrains.intellij.platform") version "2.14.0"
@@ -14,8 +16,6 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdea("2026.1")
-        bundledPlugin("com.intellij.java")
-        // plugin("com.jetbrains.python:2026.1.1") // Python plugin not available for 2026.1
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
     }
@@ -53,8 +53,12 @@ java {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "261"
-            untilBuild = "261.*" // IntelliJ 2026.1 branch
+            sinceBuild = "253.32098"
+            untilBuild = "262.*" // IntelliJ 2025.3 - 2026.1
         }
     }
+}
+
+tasks.runIde {
+    jvmArgs("-Djava.awt.headless=true")
 }
