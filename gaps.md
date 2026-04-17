@@ -5,6 +5,58 @@ This document analyzes the gap between IDE features needed for effective softwar
 
 ---
 
+## AI Agent Tools Analysis
+
+### Current Tools (Text-Level)
+
+As an AI agent using this IDE, I have these tools:
+
+| Tool | What it does | Limitation |
+|------|-------------|-----------|
+| **grep** | Search text patterns in files | False positives, misses renamed symbols |
+| **glob** | Find files by name pattern | Can't find symbol definitions |
+| **read** | Read file contents | Manual navigation |
+| **write** | Write files | No symbolic context |
+| **edit** | Edit by string match | Doesn't understand code structure |
+| **lsp** (limited) | Some code navigation | Only works in already-open files |
+| **bash** | Run shell commands | No IDE integration |
+
+These are all **TEXT-BASED** tools working at the character/line level.
+
+### What AI Agents Need (Symbol-Level)
+
+For effective software development, AI agents need **SYMBOLIC** tools that understand code structure:
+
+| Task | Current approach | LSP-powered approach |
+|------|------------------|---------------------|
+| **Find a method** | `grep "method name"` (false matches) | `find_symbol(method)` → exact match |
+| **Find usages** | `grep "foo"` (misses imports) | `references` → all usages |
+| **Go to definition** | manuall search | `definition` → jump |
+| **Rename** | multiple search+replace | `rename_symbol` → cross-file safe |
+| **Completion** | none | `completion` → type-aware |
+| **Organize imports** | none | `code_action` → auto-imports |
+| **Fix errors** | read error, search fix | `code_action` → quick fix |
+
+### How This Transforms Development
+
+**Example: Fix a bug in a service method**
+
+Current workflow:
+1. `grep "List<User>"` to find the class
+2. `glob "*.java"` to find files
+3. `read` each file to find method
+4. `grep` to find usages
+5. Manually track what changed
+
+VS with LSP:
+1. `find_symbol(FindUsagesCommand)` → go to definition
+2. `references` → see all callers instantly
+3. `rename_symbol` to change safely across project
+
+This changes O(hours) of manual searching into seconds of precise operations.
+
+---
+
 ## 1. What Developers Need
 
 ### Navigation
@@ -46,6 +98,22 @@ This document analyzes the gap between IDE features needed for effective softwar
 | Hover | ✅ Working | OK |
 | Diagnostics | ✅ Working | Show errors |
 | Initialize (advertised) | ⚠️ Bug | Capabilities not in response |
+
+### AI Agent Tools - What's Needed
+
+For AI agents to work effectively, we need these LSP tools integrated:
+
+| Priority | Tool | LSP Method | Current Status | AI Use Case |
+|----------|------|-----------|----------------|------------|
+| **CRITICAL** | find_symbol | workspace/symbol | ✅ Working | Find any symbol fast |
+| **CRITICAL** | references | textDocument/references | ❌ Broken | Find all usages |
+| **CRITICAL** | completion | textDocument/completion | ❌ Broken | Type-aware suggestions |
+| **HIGH** | rename_symbol | textDocument/rename | ❌ Unknown | Safe refactoring |
+| **HIGH** | code_action | textDocument/codeAction | ❌ Unknown | Auto-imports, quick fixes |
+| **HIGH** | definition | textDocument/definition | ✅ Working | Jump to definition |
+| **MEDIUM** | implementation | textDocument/implementation | ❌ Unknown | Find interface impls |
+| **MEDIUM** | signature_help | textDocument/signatureHelp | ❌ Unknown | Parameter hints |
+| **LOW** | formatting | textDocument/formatting | ❌ Unknown | Auto-format |
 
 ### Known Issues (Tested)
 | Feature | Status | Test Result |
