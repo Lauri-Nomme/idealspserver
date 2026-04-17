@@ -73,20 +73,21 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
     PsiFile file = ctx.getPsiFile();
     Document doc = MiscUtil.getDocument(file);
     if (doc == null) {
+      LOG.warn("FindUsagesCommand.execute: document is null");
       return List.of();
     }
 
     int offset = MiscUtil.positionToOffset(doc, pos);
     var target = file.findElementAt(offset);
 
-    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", target=" + target);
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", target=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
 
     if (target == null) {
       return List.of();
     }
 
     var results = ReferencesSearch.search(target).findAll();
-    LOG.warn("FindUsagesCommand.execute: found " + results.size() + " references");
+    LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + results.size() + " references");
 
     return results.stream()
         .map(PsiReference::getElement)

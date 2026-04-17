@@ -80,9 +80,18 @@ public class MyTextDocumentService implements TextDocumentService {
 
   @Override
   public CompletableFuture<Either<List<? extends Location>, List<? extends LocationLink>>> definition(DefinitionParams params) {
-    LOG.warn("definition() called for " + params.getTextDocument().getUri() + " at " + params.getPosition());
-    return new FindDefinitionCommand(params.getPosition())
-        .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
+    try {
+      var project = session.getProject();
+      if (project == null) {
+        LOG.warn("definition() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(Either.forRight(List.of()));
+      }
+      return new FindDefinitionCommand(params.getPosition())
+          .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+    } catch (Exception e) {
+      LOG.error("definition() failed", e);
+      return CompletableFuture.completedFuture(Either.forRight(List.of()));
+    }
   }
 
   @Override
@@ -99,9 +108,18 @@ public class MyTextDocumentService implements TextDocumentService {
 
   @Override
   public CompletableFuture<List<? extends Location>> references(ReferenceParams params) {
-    LOG.warn("references() called for " + params.getTextDocument().getUri() + " at " + params.getPosition() + ", includeDeclaration=" + params.getContext().isIncludeDeclaration());
-    return new FindUsagesCommand(params.getPosition())
-        .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
+    try {
+      var project = session.getProject();
+      if (project == null) {
+        LOG.warn("references() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(List.of());
+      }
+      return new FindUsagesCommand(params.getPosition())
+          .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+    } catch (Exception e) {
+      LOG.error("references() failed", e);
+      return CompletableFuture.completedFuture(List.of());
+    }
   }
 
   @Override

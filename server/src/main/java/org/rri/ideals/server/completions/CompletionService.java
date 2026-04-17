@@ -86,6 +86,9 @@ final public class CompletionService implements Disposable {
       final var psiFile = MiscUtil.resolvePsiFile(project, path);
       assert psiFile != null;
       return doComputeCompletions(psiFile, position, cancelChecker);
+    } catch (Exception e) {
+      LOG.error("completion failed", e);
+      return List.of();
     } finally {
       cancelChecker.checkCanceled();
     }
