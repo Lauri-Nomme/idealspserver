@@ -102,15 +102,11 @@ class DiagnosticsTask implements Runnable {
   @SuppressWarnings("UnstableApiUsage")
   @NotNull
   private List<HighlightInfo> doHighlighting(@NotNull Document doc, @NotNull PsiFile psiFile) {
-
     var progress = new DaemonProgressIndicator();
-
     var project = psiFile.getProject();
 
     return ProgressManager.getInstance().runProcess(() -> {
-
       try {
-        // Just run main passes directly - the daemon handles session internally
         java.util.List<HighlightInfo> result;
         try {
           result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
@@ -118,7 +114,7 @@ class DiagnosticsTask implements Runnable {
           LOG.warn("Highlighting error: " + e.getMessage());
           result = java.util.Collections.emptyList();
         }
-        
+
         if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: produced items: " + result.size());
         return result;
       } catch (IndexNotReadyException e) {
@@ -127,13 +123,11 @@ class DiagnosticsTask implements Runnable {
       } catch (ProcessCanceledException e) {
         if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: highlighting has been cancelled: " + file.getVirtualFile());
 
-        // if highlighting was cancelled for a reason nor related to diagnostic state changes, restart diagnostics
-        if(!session.isOutdated())
+        if (!session.isOutdated())
           session.signalRestart();
 
         throw e;
       }
-
     }, progress);
   }
 
