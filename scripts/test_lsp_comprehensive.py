@@ -204,6 +204,55 @@ def test_all():
     else:
         print(f"8. Hover: not supported or failed")
 
+    # Test type definition - line 4 has Logger import
+    resp = send_and_recv(
+        sock,
+        "textDocument/typeDefinition",
+        {
+            "textDocument": {"uri": f"file://{test_file}"},
+            "position": {"line": 4, "character": 32},
+        },
+        8,
+    )
+    if resp and "result" in resp and resp["result"]:
+        result = resp["result"]
+        if isinstance(result, list):
+            print(f"9. Type definition: OK - Found {len(result)} location(s)")
+        else:
+            print(f"9. Type definition: OK")
+    else:
+        print(f"9. Type definition: not supported or no result")
+
+    # Test implementation - line 27 has class declaration
+    resp = send_and_recv(
+        sock,
+        "textDocument/implementation",
+        {
+            "textDocument": {"uri": f"file://{test_file}"},
+            "position": {"line": 27, "character": 7},
+        },
+        9,
+    )
+    if resp and "result" in resp and resp["result"]:
+        print(f"10. Implementation: OK")
+    else:
+        print(f"10. Implementation: not supported or no result")
+
+    # Test document highlight - line 28 has method declarations
+    resp = send_and_recv(
+        sock,
+        "textDocument/documentHighlight",
+        {
+            "textDocument": {"uri": f"file://{test_file}"},
+            "position": {"line": 28, "character": 8},
+        },
+        10,
+    )
+    if resp and "result" in resp and resp["result"]:
+        print(f"11. Document highlight: OK - Found {len(resp['result'])} highlights")
+    else:
+        print(f"11. Document highlight: not supported or no result")
+
     sock.close()
     print("\n=== All tests completed ===")
 
