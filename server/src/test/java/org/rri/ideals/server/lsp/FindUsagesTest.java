@@ -2,12 +2,14 @@ package org.rri.ideals.server.lsp;
 
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
+import org.junit.jupiter.api.Timeout;
 import org.rri.ideals.server.TestUtil;
 import org.rri.ideals.server.generator.IdeaOffsetPositionConverter;
 import org.rri.ideals.server.references.generators.FindUsagesTestGenerator;
 
 import java.util.HashSet;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 public class FindUsagesTest extends LspServerTestWithEngineBase {
   @Override
@@ -16,6 +18,7 @@ public class FindUsagesTest extends LspServerTestWithEngineBase {
   }
 
   @Test
+  @Timeout(value = 30, unit = TimeUnit.SECONDS)
   public void findUsages() {
     final var generator = new FindUsagesTestGenerator(getEngine(), new IdeaOffsetPositionConverter(server().getProject()));
     final var definitionTests = generator.generateTests();
