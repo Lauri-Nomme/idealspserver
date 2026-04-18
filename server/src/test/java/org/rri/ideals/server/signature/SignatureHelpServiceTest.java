@@ -1,8 +1,8 @@
 package org.rri.ideals.server.signature;
 
 import com.intellij.codeInsight.hint.ParameterInfoListener;
-import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
+import com.intellij.openapi.fileTypes.StdFileTypes;
 // import com.jetbrains.python.PythonFileType;
 import org.eclipse.lsp4j.ParameterInformation;
 import org.eclipse.lsp4j.Position;
@@ -109,7 +109,7 @@ public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
                 "<no parameters>",
                 List.of(createParameterInformation(0, 15)), null));
 
-    testSignatureHelp(text, JavaFileType.INSTANCE, new Position(4, 12), null,
+    testSignatureHelp(text, StdFileTypes.JAVA, new Position(4, 12), null,
         new TestUtil.DumbCancelChecker(), expected);
   }
 
@@ -135,7 +135,7 @@ public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
                 List.of(createParameterInformation(0, 5)), 0)
         );
 
-    testSignatureHelp(text, JavaFileType.INSTANCE, new Position(6, 12), 1,
+    testSignatureHelp(text, StdFileTypes.JAVA, new Position(6, 12), 1,
         new TestUtil.DumbCancelChecker(), expected);
   }
 
@@ -164,7 +164,7 @@ public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
             createSignatureInformation("A a",
                 List.of(createParameterInformation(0, 3)), 0)
         );
-    testSignatureHelp(text, JavaFileType.INSTANCE, new Position(6, 12), 0,
+    testSignatureHelp(text, StdFileTypes.JAVA, new Position(6, 12), 0,
         new TestUtil.DumbCancelChecker(), expected);
   }
 
@@ -189,7 +189,7 @@ public class SignatureHelpServiceTest extends LspLightBasePlatformTestCase {
             createSignatureInformation("@NotNull A a",
                 List.of(createParameterInformation(0, 12)), 0)
         );
-    testSignatureHelp(text, JavaFileType.INSTANCE, new Position(6, 12), 0,
+    testSignatureHelp(text, StdFileTypes.JAVA, new Position(6, 12), 0,
         new TestUtil.DumbCancelChecker(), expected);
   }
 

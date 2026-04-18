@@ -1,7 +1,7 @@
 package org.rri.ideals.server.formatting;
 
-import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 // import com.jetbrains.python.PythonFileType;
@@ -41,7 +41,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
                     int x = 10;
                 }
                 """,
-            JavaFileType.INSTANCE, new Position(2, 1)
+            StdFileTypes.JAVA, new Position(2, 1)
         ));
   }
 
@@ -62,7 +62,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
                     int x = (10 & 7) ==;
                 }
                 """,
-            JavaFileType.INSTANCE, new Position(1, 21)
+            StdFileTypes.JAVA, new Position(1, 21)
         ));
   }
 
@@ -87,7 +87,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
                     }
                 }
                 """,
-            JavaFileType.INSTANCE, new Position(2, 13)
+            StdFileTypes.JAVA, new Position(2, 13)
         ));
   }
 
@@ -108,7 +108,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
                     int x = 1 + (true ?)
                 }
                 """,
-            JavaFileType.INSTANCE, new Position(1, 22)
+            StdFileTypes.JAVA, new Position(1, 22)
         ));
   }
 
@@ -138,7 +138,7 @@ public class OnTypeFormattingCommandTest extends LspLightBasePlatformTestCase {
                     }
                 }
                 """,
-            JavaFileType.INSTANCE, new Position(4, 27)
+            StdFileTypes.JAVA, new Position(4, 27)
         ));
   }
 

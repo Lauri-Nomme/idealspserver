@@ -3,7 +3,7 @@ package org.rri.ideals.server.completions;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
-import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.TestModeFlags;
@@ -309,7 +309,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
   public void testResolveCancellation() {
 
     var psiFile = myFixture.configureByText(
-        JavaFileType.INSTANCE,
+        StdFileTypes.JAVA,
         """
             """);
 
