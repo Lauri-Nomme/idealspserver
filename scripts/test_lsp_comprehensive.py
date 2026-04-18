@@ -145,13 +145,13 @@ def test_all():
     else:
         print(f"4. Definition: FAILED or no result")
 
-    # Test references
+    # Test references - line 4 has Logger which is used multiple places
     resp = send_and_recv(
         sock,
         "textDocument/references",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 20, "character": 10},
+            "position": {"line": 4, "character": 32},
             "context": {"includeDeclaration": True},
         },
         4,

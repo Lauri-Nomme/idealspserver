@@ -1,9 +1,13 @@
 package org.rri.ideals.server.references;
 
 import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.fileEditor.FileEditorComposite;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager;
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider;
 import com.intellij.openapi.fileEditor.impl.EditorComposite;
@@ -106,46 +110,41 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
     if (location == null) {
       return null;
     }
-    var disposable = Disposer.newDisposable();
-    try {
-      final var editor = newEditorComposite(project, file.getVirtualFile());
-      if (editor == null) {
-        return null;
-      }
-      Disposer.register(disposable, editor);
 
-      final var psiAwareEditor = EditorFileSwapper.findSinglePsiAwareEditor(editor.getAllEditors());
-      if (psiAwareEditor == null) {
-        return location;
-      }
-      psiAwareEditor.getEditor().getCaretModel().moveToOffset(MiscUtil.positionToOffset(doc, location.getRange().getStart()));
-
-      final var newFilePair = EDITOR_FILE_SWAPPER_EP_NAME.getExtensionList().stream()
-              .map(fileSwapper -> fileSwapper.getFileToSwapTo(project, editor))
-              .filter(Objects::nonNull)
-              .findFirst();
-
-      if (newFilePair.isEmpty() || newFilePair.get().getFirst() == null) {
-        return location;
-      }
-
-      final var sourcePsiFile = MiscUtil.resolvePsiFile(project,
-          LspPath.fromVirtualFile(newFilePair.get().getFirst()));
-      if (sourcePsiFile == null) {
-        return location;
-      }
-      final var sourceDoc = MiscUtil.getDocument(sourcePsiFile);
-      if (sourceDoc == null) {
-        return location;
-      }
-      final var virtualFile = newFilePair.get().getFirst();
-      final var offset = newFilePair.get().getFirst() != null ? newFilePair.get().getSecond() : 0;
-      assert virtualFile != null;
-      return new Location(LspPath.fromVirtualFile(virtualFile).toLspUri(),
-              new Range(MiscUtil.offsetToPosition(sourceDoc, offset), MiscUtil.offsetToPosition(sourceDoc, offset)));
-    } finally {
-      Disposer.dispose(disposable);
+    final var editor = newEditorComposite(project, file.getVirtualFile());
+    if (editor == null) {
+      return location;
     }
+
+    final var psiAwareEditor = EditorFileSwapper.findSinglePsiAwareEditor(editor.getAllEditors());
+    if (psiAwareEditor == null) {
+      return location;
+    }
+    psiAwareEditor.getEditor().getCaretModel().moveToOffset(MiscUtil.positionToOffset(doc, location.getRange().getStart()));
+
+    final var newFilePair = EDITOR_FILE_SWAPPER_EP_NAME.getExtensionList().stream()
+            .map(fileSwapper -> fileSwapper.getFileToSwapTo(project, editor))
+            .filter(Objects::nonNull)
+            .findFirst();
+
+    if (newFilePair.isEmpty() || newFilePair.get().getFirst() == null) {
+      return location;
+    }
+
+    final var sourcePsiFile = MiscUtil.resolvePsiFile(project,
+        LspPath.fromVirtualFile(newFilePair.get().getFirst()));
+    if (sourcePsiFile == null) {
+      return location;
+    }
+    final var sourceDoc = MiscUtil.getDocument(sourcePsiFile);
+    if (sourceDoc == null) {
+      return location;
+    }
+    final var virtualFile = newFilePair.get().getFirst();
+    final var offset = newFilePair.get().getFirst() != null ? newFilePair.get().getSecond() : 0;
+    assert virtualFile != null;
+    return new Location(LspPath.fromVirtualFile(virtualFile).toLspUri(),
+            new Range(MiscUtil.offsetToPosition(sourceDoc, offset), MiscUtil.offsetToPosition(sourceDoc, offset)));
   }
 
   @Nullable
@@ -153,29 +152,28 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
     if (file == null) {
       return null;
     }
-    final var providers = FileEditorProviderManager.getInstance().getProviderList(project, file);
-    if (providers.isEmpty()) {
+    final var application = ApplicationManager.getApplication();
+    if (application == null) {
       return null;
     }
-    final var editorsWithProviders = providers.stream().map(
-        provider -> {
-          assert provider != null;
-          assert provider.accept(project, file);
-          final var editor = provider.createEditor(project, file);
-          assert editor.isValid();
-          return new FileEditorWithProvider(editor, provider);
-        }).toList();
+    final var fileManager = FileEditorManager.getInstance(project);
+    if (fileManager == null) {
+      return null;
+    }
+
+    final var resultHolder = new java.util.concurrent.atomic.AtomicReference<EditorComposite>();
     try {
-      var constructor = EditorComposite.class.getConstructor(
-          VirtualFile.class,
-          List.class,
-          Project.class
-      );
-      return (EditorComposite) constructor.newInstance(file, editorsWithProviders, project);
+      application.invokeAndWait(() -> {
+        final var composite = fileManager.getComposite(file);
+        if (composite instanceof EditorComposite) {
+          resultHolder.set((EditorComposite) composite);
+        }
+      });
     } catch (Exception e) {
       LOG.warn("Could not create EditorComposite: " + e);
       return null;
     }
+    return resultHolder.get();
   }
 
 
