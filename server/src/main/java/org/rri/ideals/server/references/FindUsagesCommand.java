@@ -88,26 +88,60 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
     int offset = MiscUtil.positionToOffset(doc, pos);
     var element = file.findElementAt(offset);
 
-    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", raw element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
 
     if (element == null) {
       return List.of();
     }
 
-    // Just use the element at offset - FindUsagesManager handles resolution
+    // Walk up the PSI tree to find the declaration (stop EARLY at class level)
     PsiElement target = element;
-
-    LOG.warn("FindUsagesCommand.execute: target element=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
-
-    if (target == null) {
-      return List.of();
+    var className = "";
+    for (int i = 0; i < 15; i++) {
+      className = target.getClass().getSimpleName();
+      
+      // If we reach a class definition, STOP there (don't go to method calls inside the class)
+      if (className.contains("Class")) {
+        break;
+      }
+      
+      var parent = target.getParent();
+      if (parent == null || parent instanceof com.intellij.psi.PsiFile) {
+        break;
+      }
+      target = parent;
     }
 
-    // Use FindUsagesManager like reference server
-    var results = findUsagesViaManager(project, target, null);
-    LOG.warn("FindUsagesCommand.execute: Found " + results.size() + " references");
+LOG.warn("FindUsagesCommand.execute: final target=" + target + ", class=" + target.getClass().getSimpleName());
 
-    return results;
+    // Try ReferencesSearch first
+    var refsSearch = ReferencesSearch.search(target);
+    var refs = refsSearch.findAll();
+    LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + refs.size() + " references");
+    
+    if (!refs.isEmpty()) {
+      return refs.stream()
+          .map(PsiReference::getElement)
+          .map(MiscUtil::psiElementToLocation)
+          .filter(Objects::nonNull)
+          .distinct()
+          .collect(Collectors.toList());
+    }
+    
+    // Fallback: use getReferences() on the element itself
+    var elementRefs = target.getReferences();
+    LOG.warn("FindUsagesCommand.execute: element.getReferences() found " + elementRefs.length + " references");
+    
+    if (elementRefs.length > 0) {
+      return java.util.Arrays.stream(elementRefs)
+          .map(PsiReference::getElement)
+          .map(MiscUtil::psiElementToLocation)
+          .filter(Objects::nonNull)
+          .distinct()
+          .collect(Collectors.toList());
+    }
+    
+    return List.of();
   }
 
   private static @NotNull List<@NotNull Location> findUsagesViaManager(@NotNull Project project,
