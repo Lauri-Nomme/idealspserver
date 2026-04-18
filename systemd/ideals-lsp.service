@@ -1,0 +1,16 @@
+[Unit]
+Description=IdeaLS LSP Server
+After=network.target
+
+[Service]
+Type=simple
+User=lauri
+WorkingDirectory=/data/idea/idea-IU-261.22158.277
+Environment="IDEA_JDK=/data/idea/idea-IU-261.22158.277/jbr"
+Environment="JAVA_TOOL_OPTIONS=-Djava.awt.headless=true"
+ExecStart=/data/idea/idea-IU-261.22158.277/bin/idea.sh lsp-server tcp 8989
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
