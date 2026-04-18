@@ -28,5 +28,5 @@ bin/
 ### Mac OS ###
 .DS_Store
 
-### IntelliJ Platform Sandbox ###
-server/.intellijPlatform/sandbox/
+### IntelliJ Platform ###
+server/.intellijPlatform/
