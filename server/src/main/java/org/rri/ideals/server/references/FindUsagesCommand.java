@@ -20,6 +20,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiInvalidElementAccessException;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.SearchRequestCollector;
 import com.intellij.psi.search.SearchSession;
@@ -85,107 +86,108 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
       return List.of();
     }
 
+    // Use Editor + TargetElementUtil to find the declaration at the position
+    // This is the key fix: file.findElementAt(offset) returns a reference/leaf element,
+    // but we need the DECLARATION element to find all usages
     int offset = MiscUtil.positionToOffset(doc, pos);
-    var element = file.findElementAt(offset);
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", pos line=" + pos.getLine() + ", char=" + pos.getCharacter());
+    var disposable = Disposer.newDisposable();
+    try {
+      return EditorUtil.computeWithEditor(disposable, file, pos, editor -> {
+        LOG.warn("FindUsagesCommand.execute: editor created, caret offset=" + editor.getCaretModel().getOffset());
 
-    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
+        int caretOffset = editor.getCaretModel().getOffset();
 
-    if (element == null) {
-      return List.of();
+        // Use TargetElementUtil.findTargetElement with just editor and flags (uses caret position)
+        // This finds the DECLARATION at the caret position, not the reference
+        var target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted());
+        LOG.warn("FindUsagesCommand.execute: findTargetElement=" + target + ", class=" + (target != null ? target.getClass().getSimpleName() : "null"));
+
+        if (target == null) {
+          // Fallback: try walking up PSI tree from element at caret position
+          var element = file.findElementAt(caretOffset);
+          LOG.warn("FindUsagesCommand.execute: element at caret=" + element + ", class=" + (element != null ? element.getClass().getSimpleName() : "null"));
+
+          if (element != null) {
+            PsiElement current = element;
+            for (int i = 0; i < 15 && current != null; i++) {
+              var className = current.getClass().getSimpleName();
+              LOG.warn("FindUsagesCommand.execute: walking up: " + className);
+              if (className.contains("Class") || className.contains("Method") || className.contains("Field") ||
+                  className.contains("Variable") || className.contains("Declaration") || className.contains("Parameter")) {
+                target = current;
+                LOG.warn("FindUsagesCommand.execute: Found target at " + className);
+                break;
+              }
+              current = current.getParent();
+            }
+          }
+          LOG.warn("FindUsagesCommand.execute: PSI walk target=" + target + ", class=" + (target != null ? target.getClass().getSimpleName() : "null"));
+        }
+
+        if (target == null) {
+          return List.<Location>of();
+        }
+
+        LOG.warn("FindUsagesCommand.execute: target class=" + target.getClass().getSimpleName() + ", text=" + target.getText());
+
+        var refs = ReferencesSearch.search(target).findAll();
+        LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + refs.size() + " references");
+
+        if (!refs.isEmpty()) {
+          var locations = refs.stream()
+              .map(PsiReference::getElement)
+              .map(MiscUtil::psiElementToLocation)
+              .filter(Objects::nonNull)
+              .distinct()
+              .collect(Collectors.toList());
+          LOG.warn("FindUsagesCommand.execute: converted to " + locations.size() + " locations");
+          return locations;
+        }
+
+        // Fallback to FindUsagesManager
+        var results = findUsagesViaManager(project, target, file, ctx.getCancelToken());
+        LOG.warn("FindUsagesCommand.execute: findUsagesViaManager found " + results.size() + " usages");
+
+        return results;
+      });
+    } finally {
+      Disposer.dispose(disposable);
     }
-
-    // Walk up the PSI tree to find the declaration (stop EARLY at class level)
-    PsiElement target = element;
-    var className = "";
-    for (int i = 0; i < 15; i++) {
-      className = target.getClass().getSimpleName();
-      
-      // If we reach a class definition, STOP there (don't go to method calls inside the class)
-      if (className.contains("Class")) {
-        break;
-      }
-      
-      var parent = target.getParent();
-      if (parent == null || parent instanceof com.intellij.psi.PsiFile) {
-        break;
-      }
-      target = parent;
-    }
-
-LOG.warn("FindUsagesCommand.execute: final target=" + target + ", class=" + target.getClass().getSimpleName());
-
-    // Try ReferencesSearch first
-    var refsSearch = ReferencesSearch.search(target);
-    var refs = refsSearch.findAll();
-    LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + refs.size() + " references");
-    
-    if (!refs.isEmpty()) {
-      return refs.stream()
-          .map(PsiReference::getElement)
-          .map(MiscUtil::psiElementToLocation)
-          .filter(Objects::nonNull)
-          .distinct()
-          .collect(Collectors.toList());
-    }
-    
-    // Fallback: use getReferences() on the element itself
-    var elementRefs = target.getReferences();
-    LOG.warn("FindUsagesCommand.execute: element.getReferences() found " + elementRefs.length + " references");
-    
-    if (elementRefs.length > 0) {
-      return java.util.Arrays.stream(elementRefs)
-          .map(PsiReference::getElement)
-          .map(MiscUtil::psiElementToLocation)
-          .filter(Objects::nonNull)
-          .distinct()
-          .collect(Collectors.toList());
-    }
-    
-    return List.of();
   }
 
   private static @NotNull List<@NotNull Location> findUsagesViaManager(@NotNull Project project,
                                                                @NotNull PsiElement target,
+                                                               @NotNull PsiFile file,
                                                                @Nullable CancelChecker cancelToken) {
     var manager = ((FindManagerImpl) FindManager.getInstance(project)).getFindUsagesManager();
     var handler = manager.getFindUsagesHandler(target, FindUsagesHandlerFactory.OperationMode.USAGES_WITH_DEFAULT_OPTIONS);
     if (handler != null) {
-      var dialog = handler.getFindUsagesDialog(false, false, false);
-      dialog.close(DialogWrapper.OK_EXIT_CODE);
-      var options = dialog.calcFindUsagesOptions();
-      PsiElement[] primaryElements = handler.getPrimaryElements();
-      PsiElement[] secondaryElements = handler.getSecondaryElements();
-      UsageSearcher searcher = createUsageSearcher(primaryElements, secondaryElements, handler, options, project);
-      Set<Location> saver = ContainerUtil.newConcurrentSet();
-      searcher.generate(usage -> {
-        if (cancelToken != null) {
-          try {
-            cancelToken.checkCanceled();
-          } catch (CancellationException e) {
-            return false;
-          }
-        }
-        if (usage instanceof final UsageInfo2UsageAdapter ui2ua && !ui2ua.isNonCodeUsage()) {
-          var elem = ui2ua.getElement();
-          if (elem != null) {
-            var loc = MiscUtil.psiElementToLocation(elem);
-            if (loc != null) {
-              saver.add(loc);
-            }
-          }
-        }
-        return true;
-      });
-      return new ArrayList<>(saver);
-    } else {
-      // Fallback to ReferencesSearch
-      return ReferencesSearch.search(target).findAll().stream()
-          .map(PsiReference::getElement)
-          .map(MiscUtil::psiElementToLocation)
-          .filter(Objects::nonNull)
-          .distinct()
-          .collect(Collectors.toList());
+      // Use LocalSearchScope like DocumentHighlightCommand does
+      var searchScope = new LocalSearchScope(file);
+      var refs = handler.findReferencesToHighlight(target, searchScope);
+      LOG.warn("FindUsagesCommand.findUsagesViaManager: handler found " + refs.size() + " references via findReferencesToHighlight");
+      if (!refs.isEmpty()) {
+        return refs.stream()
+            .filter(Objects::nonNull)
+            .map(PsiReference::getElement)
+            .map(MiscUtil::psiElementToLocation)
+            .filter(Objects::nonNull)
+            .distinct()
+            .collect(Collectors.toList());
+      }
     }
+
+    // Fallback to ReferencesSearch with LocalSearchScope
+    var searchScope = new LocalSearchScope(file);
+    var allRefs = ReferencesSearch.search(target, searchScope, false).findAll();
+    LOG.warn("FindUsagesCommand.findUsagesViaManager: ReferencesSearch found " + allRefs.size() + " references");
+    return allRefs.stream()
+        .map(PsiReference::getElement)
+        .map(MiscUtil::psiElementToLocation)
+        .filter(Objects::nonNull)
+        .distinct()
+        .collect(Collectors.toList());
   }
 
   // Took this function from com.intellij.find.findUsages.FindUsagesManager.
