@@ -9,6 +9,8 @@ import com.intellij.find.findUsages.FindUsagesOptions;
 import com.intellij.find.impl.FindManagerImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -77,58 +79,42 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
       return List.of();
     }
 
+    var project = ctx.getProject();
+    if (project == null) {
+      LOG.warn("FindUsagesCommand.execute: project is null");
+      return List.of();
+    }
+
     int offset = MiscUtil.positionToOffset(doc, pos);
     var element = file.findElementAt(offset);
 
-    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
+    LOG.warn("FindUsagesCommand.execute: offset=" + offset + ", raw element=" + element + ", elementClass=" + (element != null ? element.getClass() : "null"));
 
     if (element == null) {
       return List.of();
     }
 
+    // Just use the element at offset - FindUsagesManager handles resolution
     PsiElement target = element;
 
-    // Try to resolve if element is a reference
-    PsiReference ref = null;
-    if (element instanceof PsiReference) {
-      ref = (PsiReference) element;
-    }
-
-    if (ref != null) {
-      try {
-        var resolved = ref.resolve();
-        if (resolved != null) {
-          target = resolved;
-          LOG.warn("FindUsagesCommand.execute: resolved to " + target.getClass().getSimpleName());
-        }
-      } catch (Exception e) {
-        LOG.warn("FindUsagesCommand.execute: resolve failed: " + e);
-      }
-    }
-
-    LOG.warn("FindUsagesCommand.execute: target=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
+    LOG.warn("FindUsagesCommand.execute: target element=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
 
     if (target == null) {
       return List.of();
     }
 
-    var results = ReferencesSearch.search(target).findAll();
-    LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + results.size() + " references");
+    // Use FindUsagesManager like reference server
+    var results = findUsagesViaManager(project, target, null);
+    LOG.warn("FindUsagesCommand.execute: Found " + results.size() + " references");
 
-    return results.stream()
-        .map(PsiReference::getElement)
-        .map(MiscUtil::psiElementToLocation)
-        .filter(Objects::nonNull)
-        .distinct()
-        .collect(Collectors.toList());
+    return results;
   }
 
-  private static @NotNull List<@NotNull Location> findUsages(@NotNull Project project,
-                                                             @NotNull PsiElement target,
-                                                             @Nullable CancelChecker cancelToken) {
+  private static @NotNull List<@NotNull Location> findUsagesViaManager(@NotNull Project project,
+                                                               @NotNull PsiElement target,
+                                                               @Nullable CancelChecker cancelToken) {
     var manager = ((FindManagerImpl) FindManager.getInstance(project)).getFindUsagesManager();
     var handler = manager.getFindUsagesHandler(target, FindUsagesHandlerFactory.OperationMode.USAGES_WITH_DEFAULT_OPTIONS);
-    List<Location> result;
     if (handler != null) {
       var dialog = handler.getFindUsagesDialog(false, false, false);
       dialog.close(DialogWrapper.OK_EXIT_CODE);
@@ -147,22 +133,25 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
         }
         if (usage instanceof final UsageInfo2UsageAdapter ui2ua && !ui2ua.isNonCodeUsage()) {
           var elem = ui2ua.getElement();
-          var loc = MiscUtil.psiElementToLocation(elem);
-          if (loc != null) {
-            saver.add(loc);
+          if (elem != null) {
+            var loc = MiscUtil.psiElementToLocation(elem);
+            if (loc != null) {
+              saver.add(loc);
+            }
           }
         }
         return true;
       });
-      result = new ArrayList<>(saver);
+      return new ArrayList<>(saver);
     } else {
-      result = ReferencesSearch.search(target).findAll().stream()
+      // Fallback to ReferencesSearch
+      return ReferencesSearch.search(target).findAll().stream()
           .map(PsiReference::getElement)
           .map(MiscUtil::psiElementToLocation)
           .filter(Objects::nonNull)
+          .distinct()
           .collect(Collectors.toList());
     }
-    return result;
   }
 
   // Took this function from com.intellij.find.findUsages.FindUsagesManager.
