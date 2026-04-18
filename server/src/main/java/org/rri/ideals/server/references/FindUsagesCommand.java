@@ -86,15 +86,24 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
       return List.of();
     }
 
-    // Walk up to find PsiNamedElement (class, method, field)
-    var target = element;
-    while (target != null && !(target instanceof com.intellij.psi.PsiNamedElement)) {
-      target = target.getParent();
+    PsiElement target = element;
+
+    // Try to resolve if element is a reference
+    PsiReference ref = null;
+    if (element instanceof PsiReference) {
+      ref = (PsiReference) element;
     }
 
-    // If still no target, use original element
-    if (target == null) {
-      target = element;
+    if (ref != null) {
+      try {
+        var resolved = ref.resolve();
+        if (resolved != null) {
+          target = resolved;
+          LOG.warn("FindUsagesCommand.execute: resolved to " + target.getClass().getSimpleName());
+        }
+      } catch (Exception e) {
+        LOG.warn("FindUsagesCommand.execute: resolve failed: " + e);
+      }
     }
 
     LOG.warn("FindUsagesCommand.execute: target=" + target + ", targetClass=" + (target != null ? target.getClass() : "null"));
