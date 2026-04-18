@@ -253,6 +253,56 @@ def test_all():
     else:
         print(f"11. Document highlight: not supported or no result")
 
+    # Test cross-file references
+    # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
+    bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/org/rri/ideals/server/bootstrap"
+    lsp_server_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
+
+    # Open LspServerRunnerBase.java which references LspServer
+    with open(lsp_runner_file) as f:
+        runner_text = f.read()
+    send_notification(
+        sock,
+        "textDocument/didOpen",
+        {
+            "textDocument": {
+                "uri": f"file://{lsp_runner_file}",
+                "languageId": "java",
+                "version": 1,
+                "text": runner_text,
+            }
+        },
+    )
+    print("    Waiting extra 5 seconds for cross-file indexing...")
+    time.sleep(5)  # Wait extra time for indexing cross-file references
+
+    # Find references to LspServer class - should find usages in LspServerRunnerBase.java
+    resp = send_and_recv(
+        sock,
+        "textDocument/references",
+        {
+            "textDocument": {"uri": f"file://{lsp_server_file}"},
+            "position": {
+                "line": 26,
+                "character": 13,
+            },  # "L" of "LspServer" in "public class LspServer" (LSP lines 0-indexed)
+            "context": {"includeDeclaration": True},
+        },
+        11,
+    )
+    if resp and "result" in resp and resp["result"]:
+        refs = resp["result"]
+        # Check if we got cross-file references (should include LspServerRunnerBase.java)
+        cross_file = any("LspServerRunnerBase" in str(r.get("uri", "")) for r in refs)
+        same_file = any("LspServer.java" in str(r.get("uri", "")) for r in refs)
+        print(f"12. Cross-file References: OK - Found {len(refs)} references")
+        print(f"    - Same file: {same_file}, Cross-file: {cross_file}")
+        if not cross_file:
+            print(f"    WARNING: Cross-file references may not be working!")
+    else:
+        print(f"12. Cross-file References: FAILED or no result")
+
     sock.close()
     print("\n=== All tests completed ===")
 

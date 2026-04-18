@@ -23,11 +23,14 @@ systemctl --user daemon-reload
 systemctl --user restart ideals-lsp
 
 echo "Waiting for LSP server..."
-sleep 15
-
-if python3 -c "import socket; s=socket.socket(); s.connect(('127.0.0.1', 8989))" 2>/dev/null; then
-    echo "LSP server is running on port 8989"
-else
-    echo "ERROR: LSP server not responding"
-    exit 1
-fi
+for i in {1..30}; do
+    if python3 -c "import socket; s=socket.socket(); s.connect(('127.0.0.1', 8989)); s.close()" 2>/dev/null; then
+        echo "LSP server is running on port 8989"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "ERROR: LSP server not responding after 30 seconds"
+        exit 1
+    fi
+    sleep 1
+done

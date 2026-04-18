@@ -3,12 +3,17 @@ package org.rri.ideals.server;
 import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
+import com.intellij.openapi.roots.ContentEntry;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -85,6 +90,7 @@ public class ProjectService {
 
     if (project != null) {
       waitUntilInitialized(project);
+      ensureSourceRoots(project, projectPath);
       cacheProject(projectPath, project);
     }
 
@@ -119,5 +125,54 @@ public class ProjectService {
   private void cacheProject(@NotNull LspPath projectPath, Project project) {
     LOG.info("Caching project: " + projectPath);
     projectHashes.put(projectPath, project.getLocationHash());
+  }
+
+  /**
+   * Ensure the project has at least one module with the workspace folder as a content/source root.
+   * Without this, GlobalSearchScope (which relies on IntelliJ's word index) won't find any
+   * project files, breaking cross-file references, find usages, etc.
+   */
+  private void ensureSourceRoots(@NotNull Project project, @NotNull LspPath projectPath) {
+    var moduleManager = ModuleManager.getInstance(project);
+    var modules = moduleManager.getModules();
+
+    // Check if any module already has content roots
+    for (var module : modules) {
+      var rootManager = ModuleRootManager.getInstance(module);
+      if (rootManager.getContentRoots().length > 0) {
+        LOG.info("Project already has content roots configured, skipping source root setup");
+        return;
+      }
+    }
+
+    // No content roots found - add the workspace folder as a source root
+    var projectDir = VirtualFileManager.getInstance().findFileByUrl(projectPath.toLspUri());
+    if (projectDir == null) {
+      projectDir = projectPath.refreshAndFindVirtualFile();
+    }
+    if (projectDir == null) {
+      LOG.warn("Cannot find virtual file for project path: " + projectPath);
+      return;
+    }
+
+    LOG.info("Setting up source roots for workspace folder: " + projectPath);
+    final var dir = projectDir;
+    ApplicationManager.getApplication().invokeAndWait(() ->
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        try {
+          var module = modules.length > 0 ? modules[0]
+              : moduleManager.newModule(
+                  Files.createTempDirectory("ideals-lsp-").resolve("lsp-module.iml"),
+                  "WEB_MODULE");
+          var modifiableModel = ModuleRootManager.getInstance(module).getModifiableModel();
+          ContentEntry contentEntry = modifiableModel.addContentEntry(dir);
+          contentEntry.addSourceFolder(dir, false);
+          modifiableModel.commit();
+          LOG.info("Added source root: " + dir.getUrl());
+        } catch (Exception e) {
+          LOG.warn("Failed to set up source roots for workspace: " + projectPath, e);
+        }
+      })
+    );
   }
 }
