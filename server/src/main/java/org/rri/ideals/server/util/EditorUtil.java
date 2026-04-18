@@ -67,4 +67,8 @@ public class EditorUtil {
   public static @Nullable PsiElement findTargetElement(@NotNull Editor editor) {
     return TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted());
   }
+
+  public static @Nullable PsiElement findTargetElement(@NotNull Editor editor, int offset) {
+    return TargetElementUtil.getInstance().findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted(), offset);
+  }
 }
