@@ -170,13 +170,13 @@ def test_all():
     else:
         print(f"6. Workspace symbols: FAILED or no result")
 
-    # Test completion - line 25 has some text
+    # Test completion - line 31 is empty line inside class body (good for keyword completions)
     resp = send_and_recv(
         sock,
         "textDocument/completion",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 0, "character": 10},
+            "position": {"line": 31, "character": 0},
         },
         6,
     )
