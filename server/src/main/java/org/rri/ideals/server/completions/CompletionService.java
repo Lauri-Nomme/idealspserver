@@ -344,11 +344,13 @@ final public class CompletionService implements Disposable {
         });
 
         if (lookupElements.isEmpty()) {
-          LOG.info("No completion results");
+          LOG.warn("No completion results");
           return List.of();
         }
 
-        LOG.info("Got " + lookupElements.size() + " completion results");
+        for (var le : lookupElements) {
+          LOG.warn("Completion result: " + le.getLookupString());
+        }
 
         var result = new java.util.ArrayList<CompletionItem>();
         var completionDataVersion = cachedDataRef.get().version + 1;
