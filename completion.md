@@ -171,7 +171,18 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 ```
 
-## Implementation Details
+## Current Output
+
+Test shows only `formula` returned (not `for` keyword):
+```
+WARN - Completion result: formula
+```
+
+Expected: both `for` (keyword) and `formula` (method)
+
+Issues:
+- `kind = null` instead of `Method` - conversion problem
+- Missing `for` keyword - need to investigate completion scope
 
 ### Code Flow in CompletionService.doComputeCompletions():
 
