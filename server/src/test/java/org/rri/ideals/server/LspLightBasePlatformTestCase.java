@@ -1,8 +1,8 @@
 package org.rri.ideals.server;
 
-import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 
-public abstract class LspLightBasePlatformTestCase extends BasePlatformTestCase {
+public abstract class LspLightBasePlatformTestCase extends LightJavaCodeInsightFixtureTestCase {
   @Override
   protected boolean isIconRequired() {
     return true;

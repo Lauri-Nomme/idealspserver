@@ -16,6 +16,7 @@ repositories {
 dependencies {
     intellijPlatform {
         intellijIdea("2026.1")
+        bundledPlugin("com.intellij.java")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
     }

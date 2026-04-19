@@ -1,5 +1,5 @@
 class TestInstanceOf {
-    public static void main(String[] args) {
+    static void main() {
         $0
     }
 }

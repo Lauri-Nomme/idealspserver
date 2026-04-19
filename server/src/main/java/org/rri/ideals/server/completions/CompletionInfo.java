@@ -7,11 +7,13 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementPresentation;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -45,8 +47,11 @@ public class CompletionInfo {
   private final VoidCompletionProcess process;
 
   @SuppressWarnings("UnstableApiUsage")
-  public CompletionInfo(@NotNull Editor editor, @NotNull Project project) {
+  public CompletionInfo(@NotNull Editor editor, @NotNull Project project, @NotNull Disposable parentDisposable) {
     process = new VoidCompletionProcess();
+    // Register process with parent so child disposables from insertDummyIdentifier get cleaned up
+    Disposer.register(parentDisposable, process);
+
     initContext = CompletionInitializationUtil.createCompletionInitializationContext(
         project,
         editor,
@@ -55,12 +60,20 @@ public class CompletionInfo {
         CompletionType.BASIC);
     assert initContext != null;
 
-    var file = initContext.getFile();
-    var offsetMap = initContext.getOffsetMap();
+    // Set host offsets on the process before inserting dummy identifier,
+    // since insertDummyIdentifier calls process.getHostOffsets()
+    var hostOffsets = new OffsetsInFile(initContext.getFile(), initContext.getOffsetMap());
+    process.setHostOffsets(hostOffsets);
+
+    // Insert dummy identifier into a file copy - this is critical for completion to work.
+    // Without it, the completion position element is whitespace/wrong and contributors don't fire.
+    var copyTask = CompletionInitializationUtil.insertDummyIdentifier(initContext, process);
+    var offsetsWithDummy = copyTask.ensureUpdatedAndGetNewOffsets();
+
     parameters = CompletionInitializationUtil.createCompletionParameters(
         initContext,
         process,
-        new OffsetsInFile(file, offsetMap));
+        offsetsWithDummy);
     arranger = new LookupArrangerImpl(parameters);
     ClientProjectSession session = ClientSessionsUtil.getCurrentSession(project);
     lookup = new LookupImpl(session, editor, arranger);
