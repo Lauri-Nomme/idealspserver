@@ -3,6 +3,7 @@ package org.rri.ideals.server.completions;
 import com.intellij.codeInsight.completion.CompletionParameters;
 import com.intellij.codeInsight.completion.CompletionProcess;
 import com.intellij.codeInsight.completion.CompletionProcessEx;
+import com.intellij.codeInsight.completion.OffsetsInFile;
 import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.Caret;
@@ -20,6 +21,11 @@ import java.util.function.Supplier;
 
 public class VoidCompletionProcess extends AbstractProgressIndicatorExBase implements Disposable, CompletionProcessEx {
   private final Object myLock = ObjectUtils.sentinel("VoidCompletionProcess");
+  private @Nullable OffsetsInFile hostOffsets;
+
+  public void setHostOffsets(@NotNull OffsetsInFile hostOffsets) {
+    this.hostOffsets = hostOffsets;
+  }
 
   @Override
   public boolean isAutopopupCompletion() {
@@ -51,8 +57,11 @@ public class VoidCompletionProcess extends AbstractProgressIndicatorExBase imple
   }
 
   @Override
-  public @NotNull com.intellij.codeInsight.completion.OffsetsInFile getHostOffsets() {
-    throw new UnsupportedOperationException();
+  public @NotNull OffsetsInFile getHostOffsets() {
+    if (hostOffsets == null) {
+      throw new IllegalStateException("hostOffsets not set - call setHostOffsets() first");
+    }
+    return hostOffsets;
   }
 
   @Override

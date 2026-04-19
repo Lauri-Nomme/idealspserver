@@ -51,7 +51,7 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
             """
                 \s[`ImportClass`](psi_element://ImportClass)
                                             
-                _@Contract(pure = true)__i_[](inferred.annotations) public static void methodToImport()"""), null));
+                _@[`Contract`](psi_element://org.jetbrains.annotations.Contract)(pure = true)__i_[](inferred.annotations) public static void methodToImport()"""), null));
   }
 
   @Test
@@ -59,9 +59,9 @@ public class CompletionServiceTest extends LspLightBasePlatformTestCase {
     runWithTemplateFlags(() -> testWithEngine(new CompletionTestParams("template-main-project", completionItem -> true,
         new MarkupContent(MarkupKind.MARKDOWN,
             """
-                public static void main(String\\[\\] args){ $END$ }
+                static void main(){ $END$ }
 
-                main() method declaration"""), null)));
+                static void main()"""), null)));
   }
 
   private record CompletionTestParams(@NotNull String relativePathToTestProject,

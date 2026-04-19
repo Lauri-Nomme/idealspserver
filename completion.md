@@ -1,228 +1,179 @@
-# IntelliJ Completion - Implementation Research
+# IntelliJ Completion - Implementation & Findings
 
-## Current Implementation Status: WORKING
+## Status: ALL 11 TESTS PASSING
 
-Real IntelliJ completion now works via `CompletionService.performCompletion()`.
+Real IntelliJ completion works via `CompletionService.performCompletion()` with proper
+dummy identifier insertion, icon path-based kind matching, and editor leak protection.
+
+---
+
+## Architecture
+
+### Completion Flow (doComputeCompletions)
+
+1. Create `VoidCompletionProcess` (implements `CompletionProcessEx`)
+2. Disable deferred icon loading: `Registry.get("psi.deferIconLoading").setValue(false, process)`
+3. Inside `ProgressManager.runProcess` + `invokeAndWait` (editor needs EDT):
+   a. Create editor via `EditorUtil.withEditor()`
+   b. Create `CompletionInfo(editor, project, process)` — this creates `CompletionParameters`
+      with dummy identifier inserted (see below)
+   c. Call `CompletionService.getCompletionService().performCompletion(params, consumer)`
+   d. Collect results into `LookupArrangerImpl`, cache as `CompletionData`
+4. Convert `LookupElementWithMatcher` list to LSP `CompletionItem` list
+
+### Completion Resolve Flow (doResolve)
+
+1. Create a PsiFile copy from cached `CompletionData.fileText`
+2. Inside `ProgressManager.runProcess` with `LspProgressIndicator(cancelChecker)`:
+   a. Create editor on the copy
+   b. Create new `CompletionInfo` for the copy
+   c. Get documentation via `IdeDocumentationTargetProvider.documentationTargets()` (plural)
+   d. Handle insert: `CompletionUtil.createInsertionContext()` + `lookupElement.handleInsert()`
+   e. Handle template/snippet expansion if `TemplateState` exists
+3. Diff the copy-before vs copy-after to produce LSP `TextEdit`s
+
+---
+
+## Key Discoveries & Fixes
+
+### 1. Dummy Identifier Insertion (Root Cause of Missing Keywords)
+
+**Problem**: `CompletionInfo` was passing the original `OffsetsInFile` directly to
+`createCompletionParameters()` without inserting the dummy identifier first. This meant
+the completion position element was whitespace or wrong, so `CompletionContributor`s
+(especially keyword contributors) didn't fire.
+
+**Fix**: Call `CompletionInitializationUtil.insertDummyIdentifier(initContext, process)` to
+get a `CopyFileUpdateTask`, then `ensureUpdatedAndGetNewOffsets()` to get the modified
+`OffsetsInFile` with "IntellijIdeaRulezzz" inserted. Pass *that* to `createCompletionParameters()`.
+
+**Prerequisite**: Must call `process.setHostOffsets(hostOffsets)` before `insertDummyIdentifier`,
+because it internally calls `process.getHostOffsets()`.
+
+```java
+var hostOffsets = new OffsetsInFile(initContext.getFile(), initContext.getOffsetMap());
+process.setHostOffsets(hostOffsets);
+var copyTask = CompletionInitializationUtil.insertDummyIdentifier(initContext, process);
+var offsetsWithDummy = copyTask.ensureUpdatedAndGetNewOffsets();
+parameters = CompletionInitializationUtil.createCompletionParameters(initContext, process, offsetsWithDummy);
+```
+
+### 2. Java Plugin Not Loaded in Tests
+
+**Problem**: `LspLightBasePlatformTestCase` extended `BasePlatformTestCase` which doesn't
+load the Java plugin. Java completion contributors weren't registered.
+
+**Fix**:
+- Changed base class to `LightJavaCodeInsightFixtureTestCase`
+- Added `bundledPlugin("com.intellij.java")` to `build.gradle.kts`
+
+### 3. Icon Path-Based Kind Matching
+
+**Problem**: `IconUtil.compareIcons()` fails in headless/test mode because SVG icons can't
+be rasterized — both icons render as empty 1x1 images, making all comparisons return true.
+This caused `kind` to always be set to the first match (Method).
+
+**Fix**: Extract SVG path from `CachedImageIcon` via reflection (`getOriginalPath()`) and
+look it up in a static `ICON_PATH_TO_KIND` map built from `AllIcons` constants at class init.
+Falls back to pixel-based comparison for GUI environments.
+
+```java
+private static String extractIconPath(javax.swing.Icon icon) {
+    var method = icon.getClass().getMethod("getOriginalPath");
+    return (String) method.invoke(icon);
+}
+```
+
+Why reflection: `CachedImageIcon` implements `IconPathProvider` but that interface is in
+the `util-ui` module which isn't in our compile classpath.
+
+### 4. Editor Leak on ProcessCanceledException
+
+**Problem**: In `testResolveCancellation`, `EditorFactory.createEditor()` internally creates
+and registers an `EditorImpl` with `EditorFactory`, but then `EditorImpl`'s constructor calls
+`ProgressManager.checkCanceled()` and throws `ProcessCanceledException` *before* returning
+the editor object. This leaves the editor registered with `EditorFactory` but not in our
+disposable tree → leak detected by test teardown.
+
+**Fix**: Try-catch in `EditorUtil.createEditor()` around `editorFactory.createEditor()`.
+On exception, iterate `editorFactory.getAllEditors()`, find any editor with matching document
+that isn't disposed, and release it.
+
+```java
+try {
+    created = editorFactory.createEditor(doc, file.getProject());
+} catch (Exception e) {
+    for (Editor editor : editorFactory.getAllEditors()) {
+        if (editor.getDocument() == doc && !editor.isDisposed()) {
+            editorFactory.releaseEditor(editor);
+        }
+    }
+    throw e;
+}
+```
+
+### 5. documentationTargets API Change (IntelliJ 2026.1)
+
+**Problem**: `IdeDocumentationTargetProvider.documentationTarget()` (singular) now throws
+`IllegalStateException: Override this or documentationTargets(...)`.
+
+**Fix**: Switch to `documentationTargets()` (plural) which returns a `List<DocumentationTarget>`.
+
+### 6. CompletionInfo Disposal
+
+**Problem**: `CompletionInfo` creates an internal `VoidCompletionProcess`, and
+`insertDummyIdentifier` registers child disposables on it. If the process isn't disposed
+through a parent chain, these leak.
+
+**Fix**: `CompletionInfo` constructor now takes `Disposable parentDisposable` and registers
+its internal process with it via `Disposer.register(parentDisposable, process)`.
+
+### 7. doResolve Disposal Must Use invokeAndWait
+
+**Problem**: The `finally` block in `doResolve` called `WriteCommandAction.runWriteCommandAction`
+directly, but disposal of editors requires being on EDT.
+
+**Fix**: Wrap in `ApplicationManager.getApplication().invokeAndWait()`.
+
+### 8. Test Expectation Updates for IntelliJ 2026.1
+
+**`@Contract` annotation rendering**: Now rendered as markdown link
+`@[`Contract`](psi_element://org.jetbrains.annotations.Contract)` instead of plain `@Contract`.
+
+**`main` method template**: Java 21+ implicit main — template now generates
+`static void main()` instead of `public static void main(String[] args)`.
+
+---
 
 ## Key Classes
 
-### 1. CompletionService (intellij.platform.analysis.jar)
-```java
-public abstract class CompletionService {
-  public static CompletionService getCompletionService();
-  public abstract CompletionResultSet createResultSet(
-    CompletionParameters params,
-    Consumer<CompletionResult> consumer,
-    CompletionContributor contributor,
-    PrefixMatcher matcher
-  );
-  public void performCompletion(CompletionParameters params, Consumer<CompletionResult> consumer);
-  public void getVariantsFromContributors(CompletionParameters params, ...);
-}
-```
+| Class | Location | Role |
+|-------|----------|------|
+| `CompletionService` (ours) | `server/.../completions/CompletionService.java` | LSP completion orchestration |
+| `CompletionInfo` | `server/.../completions/CompletionInfo.java` | Creates `CompletionParameters` with dummy ID |
+| `VoidCompletionProcess` | `server/.../completions/VoidCompletionProcess.java` | `CompletionProcessEx` stub |
+| `EditorUtil` | `server/.../util/EditorUtil.java` | Editor creation with leak protection |
+| `CompletionService` (IJ) | `intellij.platform.analysis` | `performCompletion()` |
+| `CompletionInitializationUtil` | `intellij.platform.analysis.impl` | `createCompletionInitializationContext`, `insertDummyIdentifier`, `createCompletionParameters` |
+| `BaseCompletionService` | `intellij.platform.analysis.impl` | Implements `performCompletion` |
+| `IdeDocumentationTargetProvider` | `intellij.platform.lang.impl` | `documentationTargets()` |
 
-### 2. BaseCompletionService (intellij.platform.analysis.impl.jar)
-```java
-public class BaseCompletionService extends CompletionService {
-  public void performCompletion(CompletionParameters params, Consumer<CompletionResult> consumer);
-  public CompletionResultSet createResultSet(...);
-}
-```
+---
 
-### 3. CompletionParameters (intellij.platform.analysis.jar)
-```java
-public class CompletionParameters extends BaseCompletionParameters {
-  public PsiFile getFile();
-  public Editor getEditor();
-  public int getOffset();
-  public CompletionType getCompletionType();
-  public String getPrefix();
-}
-```
+## Test Coverage (CompletionServiceTest)
 
-### 4. CompletionResultSet (intellij.platform.analysis.jar)
-```java
-public abstract class CompletionResultSet implements Consumer<LookupElement> {
-  public abstract void addElement(LookupElement element);
-  public abstract CompletionResultSet withPrefixMatcher(PrefixMatcher matcher);
-  public abstract CompletionResultSet withRelevanceSorter(CompletionSorter sorter);
-  public abstract void stopHere();
-  public abstract boolean isStopped();
-}
-```
+All 11 tests pass:
 
-### 5. CompletionContributor (intellij.platform.analysis.jar)
-```java
-public abstract class CompletionContributor {
-  public abstract void fillCompletionVariants(CompletionParameters params, CompletionResultSet resultSet);
-}
-```
-
-Extension point: `CompletionContributorEP` (com.intellij.completion.contributor)
-
-### 6. CompletionType (intellij.platform.analysis.jar)
-```java
-public enum CompletionType {
-  BASIC,
-  SMART,
-  CLASS_INNER,
-  IMPORTS
-}
-```
-
-### 7. PrefixMatcher (intellij.platform.analysis.jar)
-```java
-public abstract class PrefixMatcher {
-  public abstract boolean prefixMatches(String name);
-  public abstract PrefixMatcher cloneWithPrefix(String prefix);
-  public abstract String getPrefix();
-}
-```
-
-Use `PlainPrefixMatcher` for simple prefix matching.
-
-## How IDE Invokes Completion
-
-### From EditorAction (e.g., StartCompletionAction):
-
-1. Get `CompletionParameters`:
-```java
-CompletionParameters params = new CompletionParameters(
-  file,
-  prefix,
-  CompletionType.BASIC,
-  editor,
-  offset
-);
-```
-
-2. Get completion service:
-```java
-CompletionService service = CompletionService.getCompletionService();
-```
-
-3. Call performCompletion:
-```java
-service.performCompletion(parameters, resultConsumer);
-```
-
-4. Inside BaseCompletionService.performCompletion():
-   - Creates resultSet via `createResultSet()`
-   - Gets contributors from EP
-   - For each contributor: `contributor.fillCompletionVariants(params, resultSet)`
-   - Results collected via consumer
-
-## Implementation Approach
-
-### Option 1: Direct Contributor Invocation
-
-```java
-CompletionParameters params = new CompletionParameters(
-  psiFile,
-  prefix,  // get from document around offset
-  CompletionType.BASIC,
-  editor,
-  offset
-);
-
-CompletionService service = CompletionService.getCompletionService();
-CompletionResultSet resultSet = service.createResultSet(
-  params,
-  result -> elements.add(result.getLookupElement()),
-  null,  // no specific contributor - runs all
-  new PlainPrefixMatcher(prefix)
-);
-
-service.performCompletion(params, result -> {
-  // collect results
-});
-```
-
-### Option 2: EP Direct Access
-
-```java
-ExtensionPoint<CompletionContributorEP> ep = ExtensionPointName.create("com.intellij.completion.contributor");
-for (CompletionContributorEP ext : ep.getExtensions()) {
-  CompletionContributor contributor = ext.getExtension();
-  CompletionResultSet resultSet = CompletionService.getCompletionService()
-    .createResultSet(parameters, consumer, contributor, matcher);
-  contributor.fillCompletionVariants(parameters, resultSet);
-}
-```
-
-### Option 3: Create Parameters via CompletionInitializationUtil
-
-In SDK 2026.1:
-```java
-CompletionInitializationContext initContext = CompletionInitializationUtil.createCompletionInitializationContext(
-  project, editor, caret, 1, CompletionType.BASIC);
-
-CompletionParameters params = CompletionInitializationUtil.createCompletionParameters(
-  initContext, process, offsetsInFile);
-```
-
-## Required Imports
-
-```java
-import com.intellij.codeInsight.completion.*;
-import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiFile;
-```
-
-## Current Output
-
-Test shows only `formula` returned (not `for` keyword):
-```
-WARN - Completion result: formula
-```
-
-Expected: both `for` (keyword) and `formula` (method)
-
-Issues:
-- `kind = null` instead of `Method` - conversion problem
-- Missing `for` keyword - need to investigate completion scope
-
-### Code Flow in CompletionService.doComputeCompletions():
-
-```java
-// 1. Get editor
-var editor = EditorUtil.createEditor(editorDisposable, psiFile, position);
-
-// 2. Create initialization context
-var initContext = CompletionInitializationUtil.createCompletionInitializationContext(
-    project, editor, caret, 1, CompletionType.BASIC);
-
-// 3. Create completion parameters
-var parameters = CompletionInitializationUtil.createCompletionParameters(
-    initContext, process, hostOffsets);
-
-// 4. Run completion via service
-var service = CompletionService.getCompletionService();
-service.performCompletion(parameters, result -> {
-  lookupElements.add(result.getLookupElement());
-});
-```
-
-### Key Points:
-- Must provide `CompletionProcessEx` (not null) - use `VoidCompletionProcess`
-- Must use `CompletionInitializationUtil` to create proper parameters
-- Results come through consumer callback
-- Real completion finds method `formula` from test project
-
-### VoidCompletionProcess:
-Must implement `CompletionProcessEx` interface:
-```java
-class VoidCompletionProcess extends AbstractProgressIndicatorExBase 
-    implements Disposable, CompletionProcessEx {
-  // Implement all required methods
-}
-```
-
-## Testing Notes
-
-- Test file: `java-function-and-keyword-project/src/function_and_keyword.java`
-- Contains class with method `formula()` 
-- Test expects that method to appear in completion results
-- Need real completion, not fallback keywords
+| Test | What it covers |
+|------|---------------|
+| `testCompletionForKeywordAndFunctionJava` | Keywords (`for`) and methods (`formula`) returned with correct kinds |
+| `testCompletionForImportedClass` | Class completion from imports |
+| `testCompletionForStaticImport` | Static import completion + `@Contract` documentation |
+| `testJavaItarWithLookupItem` | `itar` live template with lookup |
+| `testJavaItcoLiveTemplate` | `itco` live template |
+| `testJavaLambdaPostfixTemplate` | Lambda postfix template |
+| `testJavaForiLiveTemplate` | `fori` live template |
+| `testJavaItli` | `itli` live template |
+| `testJavaIterWithLookupItemLiveTemplate` | `iter` live template with lookup |
+| `testTemplateCompletion` | `main` method template (Java 21+ signature) |
+| `testResolveCancellation` | Cancellation during resolve doesn't leak editors |
