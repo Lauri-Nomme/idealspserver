@@ -2,6 +2,7 @@ package org.rri.ideals.server.completions;
 
 import com.google.gson.Gson;
 import com.intellij.codeInsight.completion.CompletionUtil;
+import com.intellij.codeInsight.completion.PlainPrefixMatcher;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementPresentation;
 import com.intellij.codeInsight.lookup.LookupManager;
@@ -293,34 +294,104 @@ final public class CompletionService implements Disposable {
                                                              @NotNull Position position,
                                                              @NotNull CancelChecker cancelChecker) {
     try {
-      var items = new java.util.ArrayList<CompletionItem>();
-      
-      // Common Java keywords and types
-      var keywords = new java.util.HashSet<String>();
-      keywords.add("public"); keywords.add("private"); keywords.add("protected");
-      keywords.add("static"); keywords.add("final"); keywords.add("void");
-      keywords.add("class"); keywords.add("interface"); keywords.add("return");
-      keywords.add("if"); keywords.add("else"); keywords.add("for"); keywords.add("while");
-      keywords.add("new"); keywords.add("this"); keywords.add("super");
-      keywords.add("import"); keywords.add("package"); keywords.add("try");
-      keywords.add("catch"); keywords.add("throw"); keywords.add("throws");
-      keywords.add("extends"); keywords.add("implements"); keywords.add("abstract");
-      keywords.add("var"); keywords.add("int"); keywords.add("long"); keywords.add("double");
-      keywords.add("float"); keywords.add("boolean"); keywords.add("char"); keywords.add("String");
-      keywords.add("List"); keywords.add("Map"); keywords.add("Set"); keywords.add("Object");
-      
-      for (var kw : keywords) {
-        var item = new CompletionItem(kw);
-        item.setKind(CompletionItemKind.Keyword);
-        item.setDetail("Java keyword");
-        items.add(item);
+      var document = psiFile.getViewProvider().getDocument();
+      if (document == null) {
+        LOG.warn("No document for file: " + psiFile.getName());
+        return List.of();
       }
-      
-      return items;
+
+      int offset = MiscUtil.positionToOffset(document, position);
+      if (offset < 0 || offset > document.getTextLength()) {
+        LOG.warn("Invalid offset: " + offset);
+        return List.of();
+      }
+
+      String prefix = extractPrefix(document, offset);
+
+      var editorDisposable = Disposer.newDisposable();
+      try {
+        var editor = EditorUtil.createEditor(editorDisposable, psiFile, position);
+
+        var initContext = com.intellij.codeInsight.completion.CompletionInitializationUtil.createCompletionInitializationContext(
+            project,
+            editor,
+            editor.getCaretModel().getPrimaryCaret(),
+            1,
+            com.intellij.codeInsight.completion.CompletionType.BASIC
+        );
+
+        if (initContext == null) {
+          LOG.warn("Failed to create completion initialization context");
+          return List.of();
+        }
+
+        var file = initContext.getFile();
+        var offsetMap = initContext.getOffsetMap();
+        var process = new VoidCompletionProcess();
+        var hostOffsets = new com.intellij.codeInsight.completion.OffsetsInFile(file, offsetMap);
+
+        var parameters = com.intellij.codeInsight.completion.CompletionInitializationUtil.createCompletionParameters(
+            initContext,
+            process,
+            hostOffsets
+        );
+
+        var lookupElements = new java.util.ArrayList<LookupElement>();
+
+        var service = com.intellij.codeInsight.completion.CompletionService.getCompletionService();
+        service.performCompletion(parameters, result -> {
+          lookupElements.add(result.getLookupElement());
+        });
+
+        if (lookupElements.isEmpty()) {
+          LOG.info("No completion results");
+          return List.of();
+        }
+
+        LOG.info("Got " + lookupElements.size() + " completion results");
+
+        var result = new java.util.ArrayList<CompletionItem>();
+        var completionDataVersion = cachedDataRef.get().version + 1;
+
+        for (int i = 0; i < lookupElements.size(); i++) {
+          var lookupElement = lookupElements.get(i);
+          var item = createLspCompletionItem(
+              lookupElement,
+              MiscUtil.with(new Range(), range -> {
+                range.setStart(MiscUtil.offsetToPosition(document, offset - prefix.length()));
+                range.setEnd(position);
+              })
+          );
+          item.setData(new CompletionItemData(completionDataVersion, i));
+          result.add(item);
+        }
+
+        return result;
+      } finally {
+        Disposer.dispose(editorDisposable);
+      }
     } catch (Exception e) {
       LOG.error("Completion failed", e);
       return List.of();
     }
+  }
+
+  @NotNull
+  private String extractPrefix(@NotNull Document document, int offset) {
+    if (offset <= 0) {
+      return "";
+    }
+    var text = document.getText();
+    var start = Math.max(0, offset - 20);
+    var prefixStart = offset;
+    for (int i = offset - 1; i >= start; i--) {
+      char c = text.charAt(i);
+      if (!Character.isJavaIdentifierPart(c) && c != '.') {
+        prefixStart = i + 1;
+        break;
+      }
+    }
+    return text.substring(prefixStart, offset);
   }
 
   @NotNull
