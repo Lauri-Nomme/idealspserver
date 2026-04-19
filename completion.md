@@ -1,5 +1,9 @@
 # IntelliJ Completion - Implementation Research
 
+## Current Implementation Status: WORKING
+
+Real IntelliJ completion now works via `CompletionService.performCompletion()`.
+
 ## Key Classes
 
 ### 1. CompletionService (intellij.platform.analysis.jar)
@@ -165,6 +169,44 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
+```
+
+## Implementation Details
+
+### Code Flow in CompletionService.doComputeCompletions():
+
+```java
+// 1. Get editor
+var editor = EditorUtil.createEditor(editorDisposable, psiFile, position);
+
+// 2. Create initialization context
+var initContext = CompletionInitializationUtil.createCompletionInitializationContext(
+    project, editor, caret, 1, CompletionType.BASIC);
+
+// 3. Create completion parameters
+var parameters = CompletionInitializationUtil.createCompletionParameters(
+    initContext, process, hostOffsets);
+
+// 4. Run completion via service
+var service = CompletionService.getCompletionService();
+service.performCompletion(parameters, result -> {
+  lookupElements.add(result.getLookupElement());
+});
+```
+
+### Key Points:
+- Must provide `CompletionProcessEx` (not null) - use `VoidCompletionProcess`
+- Must use `CompletionInitializationUtil` to create proper parameters
+- Results come through consumer callback
+- Real completion finds method `formula` from test project
+
+### VoidCompletionProcess:
+Must implement `CompletionProcessEx` interface:
+```java
+class VoidCompletionProcess extends AbstractProgressIndicatorExBase 
+    implements Disposable, CompletionProcessEx {
+  // Implement all required methods
+}
 ```
 
 ## Testing Notes
