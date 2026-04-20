@@ -15,6 +15,7 @@ import com.intellij.openapi.fileEditor.impl.EditorFileSwapper;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -69,27 +70,36 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
       return Either.forRight(List.of());
     }
 
-    var targetElement = originalElem;
-    if (targetElement == null) {
-      return Either.forRight(List.of());
+    // Use EditorUtil to create an editor so we can call findDefinitions() properly
+    var definitionsRef = new Ref<List<? extends LocationLink>>();
+    var disposable = Disposer.newDisposable();
+    try {
+      EditorUtil.withEditor(disposable, file, pos, editor -> {
+        // Now actually call the subclass's findDefinitions() method - this was the bug!
+        // Previously we just used originalElem as targetElement and never called findDefinitions()
+        var targetElements = findDefinitions(editor, offset).collect(Collectors.toList());
+
+        var definitions = targetElements.stream()
+            .filter(targetElem -> targetElem != null && targetElem.getContainingFile() != null)
+            .map(targetElem -> {
+              final var loc = findSourceLocation(ctx.getProject(), targetElem);
+              if (loc != null) {
+                return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
+              } else {
+                Document targetDoc = targetElem.getContainingFile().equals(file)
+                    ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
+                return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
+              }
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+        definitionsRef.set((List) definitions);
+      });
+    } finally {
+      Disposer.dispose(disposable);
     }
 
-    var definitions = List.of(targetElement).stream()
-        .map(targetElem -> {
-          if (targetElem.getContainingFile() == null) { return null; }
-          final var loc = findSourceLocation(ctx.getProject(), targetElem);
-          if (loc != null) {
-            return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
-          } else {
-            Document targetDoc = targetElem.getContainingFile().equals(file)
-                ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
-            return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
-          }
-        })
-        .filter(Objects::nonNull)
-        .collect(Collectors.toList());
-
-    return Either.forRight(definitions);
+    return Either.forRight(definitionsRef.get() != null ? definitionsRef.get() : List.of());
   }
 
   /**
