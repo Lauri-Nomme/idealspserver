@@ -1,6 +1,7 @@
 package org.rri.ideals.server.diagnostics;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.openapi.diagnostic.Logger;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.jetbrains.annotations.NotNull;
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 class QuickFixRegistry {
+  private static final Logger LOG = Logger.getInstance(QuickFixRegistry.class);
   private static final Comparator<Position> POSITION_COMPARATOR =
       Comparator.comparingInt(Position::getLine).thenComparingInt(Position::getCharacter);
 
@@ -18,16 +20,8 @@ class QuickFixRegistry {
 
   @NotNull
   public List<HighlightInfo.IntentionActionDescriptor> collectForRange(@NotNull Range range) {
-
-    // simplistic implementation with full scan
-    // on the expected amounts it seems fast enough
-    return quickFixes.entrySet()
-        .stream()
-        .filter( it ->
-            POSITION_COMPARATOR.compare(range.getStart(), it.getKey().range.getStart()) >= 0 &&
-            POSITION_COMPARATOR.compare(range.getEnd(), it.getKey().range.getEnd()) <= 0
-        )
-        .flatMap(it -> it.getValue().stream())
+    return quickFixes.values().stream()
+        .flatMap(List::stream)
         .collect(Collectors.toList());
   }
 
