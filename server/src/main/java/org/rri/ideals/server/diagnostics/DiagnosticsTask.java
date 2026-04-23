@@ -1,18 +1,13 @@
 package org.rri.ideals.server.diagnostics;
 
-import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
-import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
-import com.intellij.codeInsight.daemon.impl.HighlightInfo;
-import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl;
-import com.intellij.codeInsight.multiverse.CodeInsightContext;
+import com.intellij.codeInsight.daemon.impl.*;
+import com.intellij.codeInsight.multiverse.CodeInsightContextUtil;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.psi.PsiFile;
 import org.eclipse.lsp4j.*;
@@ -76,7 +71,11 @@ class DiagnosticsTask implements Runnable {
 
     var client = LspContext.getContext(file.getProject()).getClient();
 
-    client.createProgress(new WorkDoneProgressCreateParams(Either.forLeft(token))).join();
+    try {
+      client.createProgress(new WorkDoneProgressCreateParams(Either.forLeft(token))).join();
+    } catch (Exception e) {
+      LOG.warn("Failed to create progress: " + e.getMessage());
+    }
     final var progressBegin = new WorkDoneProgressBegin();
     progressBegin.setTitle("Analyzing file...");
     progressBegin.setCancellable(false);
@@ -92,6 +91,8 @@ class DiagnosticsTask implements Runnable {
               .collect(Collectors.toList())
       );
       client.publishDiagnostics(new PublishDiagnosticsParams(path.toLspUri(), diags));
+    } catch (Exception e) {
+      LOG.warn("Error in DiagnosticsTask.run(): " + e.getMessage());
     } finally {
       client.notifyProgress(new ProgressParams(Either.forLeft(token), Either.forLeft(new WorkDoneProgressEnd())));
     }
@@ -108,65 +109,27 @@ class DiagnosticsTask implements Runnable {
   @SuppressWarnings("UnstableApiUsage")
   @NotNull
   private List<HighlightInfo> doHighlighting(@NotNull Document doc, @NotNull PsiFile psiFile) {
+    var project = psiFile.getProject();
+    var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
+    var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
+    var range = ProperTextRange.create(0, doc.getTextLength());
 
     var progress = new DaemonProgressIndicator();
-
-    var project = psiFile.getProject();
-
-    final var resultRef = new java.util.concurrent.atomic.AtomicReference<List<HighlightInfo>>();
+    progress.start();
 
     return ProgressManager.getInstance().runProcess(() -> {
-
-      try {
-        final var range = ProperTextRange.create(0, doc.getTextLength());
-
-        // IntelliJ 2026.1+: Must create HighlightingSession with CodeInsightContext
-        // Use reflection to avoid compilation issues with version-specific API
-        CodeInsightContext context;
+      var result = new ArrayList<HighlightInfo>();
+      HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
         try {
-          context = (CodeInsightContext) Class.forName("com.intellij.codeInsight.multiverse.CodeInsightContexts")
-              .getMethod("defaultContext")
-              .invoke(null);
-        } catch (Exception e) {
-          LOG.warn("Could not get CodeInsightContext: " + e.getMessage());
-          return Collections.emptyList();
+          var highlights = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+          if (highlights != null) {
+            result.addAll(highlights);
+          }
+        } catch (Exception ex) {
+          LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
         }
-
-        var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
-
-        // Must run runMainPasses INSIDE the HighlightingSession callback
-        HighlightingSessionImpl.runInsideHighlightingSession(
-            psiFile,
-            context,
-            colorsScheme,
-            range,
-            false,
-            session -> {
-              try {
-                var result = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-                resultRef.set(result);
-              } catch (Exception e) {
-                LOG.warn("Highlighting error: " + e.getMessage());
-                resultRef.set(Collections.emptyList());
-              }
-            }
-        );
-
-        var result = resultRef.get();
-        if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: produced items: " + (result != null ? result.size() : 0));
-        return result != null ? result : Collections.emptyList();
-      } catch (IndexNotReadyException e) {
-        LOG.warn("Analyzing file: index not ready");
-        return Collections.emptyList();
-      } catch (ProcessCanceledException e) {
-        if (LOG.isTraceEnabled()) LOG.trace("Analyzing file: highlighting has been cancelled: " + file.getVirtualFile());
-
-        if (!session.isOutdated())
-          session.signalRestart();
-
-        throw e;
-      }
-
+      });
+      return result;
     }, progress);
   }
 
