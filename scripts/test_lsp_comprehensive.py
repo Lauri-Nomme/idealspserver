@@ -10,43 +10,67 @@ import time
 PROJECT_PATH = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java"
 
 
-def recv_message(sock):
+# Track diagnostics and code actions responses
+diagnostics_result = {}
+code_actions_result = {}
+
+
+def recv_message(sock, timeout=None):
     """Receive and parse a JSON-RPC message."""
-    header = b""
-    while b"\r\n\r\n" not in header:
-        c = sock.recv(1)
-        if not c:
+    old_timeout = sock.gettimeout()
+    if timeout is not None:
+        sock.settimeout(timeout)
+    try:
+        header = b""
+        while b"\r\n\r\n" not in header:
+            c = sock.recv(1)
+            if not c:
+                return None
+            header += c
+
+        match = None
+        for line in header.decode().split("\r\n"):
+            if line.startswith("Content-Length:"):
+                match = line
+                break
+        if not match:
             return None
-        header += c
 
-    match = None
-    for line in header.decode().split("\r\n"):
-        if line.startswith("Content-Length:"):
-            match = line
-            break
-    if not match:
+        length = int(match.split(":")[1].strip())
+        body = b""
+        while len(body) < length:
+            chunk = sock.recv(length - len(body))
+            if not chunk:
+                break
+            body += chunk
+
+        return json.loads(body.decode())
+    except socket.timeout:
         return None
-
-    length = int(match.split(":")[1].strip())
-    body = b""
-    while len(body) < length:
-        chunk = sock.recv(length - len(body))
-        if not chunk:
-            break
-        body += chunk
-
-    return json.loads(body.decode())
+    finally:
+        sock.settimeout(old_timeout)
 
 
 def recv_response(sock, expected_id):
-    """Receive response(s) including progress notifications."""
+    """Receive response(s) including progress notifications and diagnostics."""
     while True:
         resp = recv_message(sock)
         if resp is None:
             break
 
-        # Skip notifications
-        if "method" in resp and "id" not in resp:
+        # Collect diagnostics notifications
+        if resp.get("method") == "textDocument/publishDiagnostics":
+            diagnostics_result["data"] = resp.get("params", {})
+
+        # Respond to server-to-client requests (e.g. window/workDoneProgress/create)
+        if "id" in resp and "method" in resp:
+            reply = {"jsonrpc": "2.0", "id": resp["id"], "result": None}
+            content = json.dumps(reply)
+            sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+            continue
+
+        # Skip other notifications
+        if "id" not in resp:
             continue
 
         if resp.get("id") == expected_id:
@@ -68,6 +92,23 @@ def send_notification(sock, method, params):
     req = {"jsonrpc": "2.0", "method": method, "params": params}
     content = json.dumps(req)
     sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+
+
+def drain_notifications(sock, seconds=5):
+    """Read all notifications from the socket for a given duration."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        remaining = max(0.1, deadline - time.time())
+        msg = recv_message(sock, timeout=remaining)
+        if msg is None:
+            continue
+        if msg.get("method") == "textDocument/publishDiagnostics":
+            diagnostics_result["data"] = msg.get("params", {})
+        # Respond to server-to-client requests
+        if "id" in msg and "method" in msg:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": None}
+            content = json.dumps(reply)
+            sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
 
 
 def test_all():
@@ -110,7 +151,7 @@ def test_all():
         },
     )
     print("2. Opened test file, waiting for indexing...")
-    time.sleep(10)
+    drain_notifications(sock, seconds=10)
 
     # Test document symbols
     resp = send_and_recv(
@@ -253,6 +294,63 @@ def test_all():
     else:
         print(f"11. Document highlight: not supported or no result")
 
+    # Test diagnostics on existing file - use LspServer.java which we know exists
+    error_test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+
+    # Send didChange to introduce an error - change an int to String
+    send_notification(
+        sock,
+        "textDocument/didChange",
+        {
+            "textDocument": {"uri": f"file://{error_test_file}", "version": 2},
+            "contentChanges": [{"text": " String x = 123;  // Type mismatch error\n"}],
+        },
+    )
+    print("    Sent change to LspServer.java to introduce error...")
+    drain_notifications(sock, seconds=8)
+
+    # Check if diagnostics were received
+    if diagnostics_result.get("data"):
+        diags = diagnostics_result["data"].get("diagnostics", [])
+        if diags:
+            print(f"13. Diagnostics: OK - Found {len(diags)} diagnostics")
+            for d in diags[:2]:
+                msg = d.get("message", "")[:50]
+                print(f"    - {msg}")
+        else:
+            print(f"13. Diagnostics: OK - but no errors")
+    else:
+        print(f"13. Diagnostics: No diagnostics received")
+
+    # Test code actions at error location
+    if diagnostics_result.get("data") and diagnostics_result["data"].get("diagnostics"):
+        resp = send_and_recv(
+            sock,
+            "textDocument/codeAction",
+            {
+                "textDocument": {"uri": f"file://{error_test_file}"},
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 0, "character": 10}
+                },
+                "context": {"diagnostics": diagnostics_result["data"].get("diagnostics", [])}
+            },
+            12,
+        )
+        if resp and "result" in resp and resp["result"]:
+            actions = resp["result"]
+            if actions:
+                print(f"14. Code Actions: OK - Found {len(actions)} actions")
+                for a in actions[:3]:
+                    title = a.get("title", "unknown")
+                    print(f"    - {title[:50]}")
+            else:
+                print(f"14. Code Actions: No actions available")
+        else:
+            print(f"14. Code Actions: Failed or not supported")
+    else:
+        print(f"14. Code Actions: Skipped (no diagnostics)")
+
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
     bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/org/rri/ideals/server/bootstrap"
@@ -275,7 +373,7 @@ def test_all():
         },
     )
     print("    Waiting extra 5 seconds for cross-file indexing...")
-    time.sleep(5)  # Wait extra time for indexing cross-file references
+    drain_notifications(sock, seconds=5)
 
     # Find references to LspServer class - should find usages in LspServerRunnerBase.java
     resp = send_and_recv(
@@ -289,19 +387,19 @@ def test_all():
             },  # "L" of "LspServer" in "public class LspServer" (LSP lines 0-indexed)
             "context": {"includeDeclaration": True},
         },
-        11,
+        13,
     )
     if resp and "result" in resp and resp["result"]:
         refs = resp["result"]
         # Check if we got cross-file references (should include LspServerRunnerBase.java)
         cross_file = any("LspServerRunnerBase" in str(r.get("uri", "")) for r in refs)
         same_file = any("LspServer.java" in str(r.get("uri", "")) for r in refs)
-        print(f"12. Cross-file References: OK - Found {len(refs)} references")
+        print(f"15. Cross-file References: OK - Found {len(refs)} references")
         print(f"    - Same file: {same_file}, Cross-file: {cross_file}")
         if not cross_file:
             print(f"    WARNING: Cross-file references may not be working!")
     else:
-        print(f"12. Cross-file References: FAILED or no result")
+        print(f"15. Cross-file References: FAILED or no result")
 
     sock.close()
     print("\n=== All tests completed ===")
