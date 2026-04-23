@@ -55,13 +55,13 @@ public class DiagnosticsServiceTest extends DiagnosticsTestBase {
     Assert.assertEquals(2, diagnostics.size());
 
     MiscUtil.with(diagnostics.get(0), it -> {
-      Assert.assertEquals("[UNRESOLVED_REFERENCE] Unresolved reference: Test", it.getMessage());
+      Assert.assertEquals("[UNRESOLVED_REFERENCE] Unresolved reference 'Test'.", it.getMessage());
       Assert.assertEquals(DiagnosticSeverity.Error, it.getSeverity());
       Assert.assertEquals(TestUtil.newRange(1, 2, 1, 6), it.getRange());
     });
 
     MiscUtil.with(diagnostics.get(1), it -> {
-      Assert.assertEquals("[UNRESOLVED_REFERENCE] Unresolved reference: args", it.getMessage());
+      Assert.assertEquals("[UNRESOLVED_REFERENCE] Unresolved reference 'args'.", it.getMessage());
       Assert.assertEquals(DiagnosticSeverity.Error, it.getSeverity());
       Assert.assertEquals(TestUtil.newRange(1, 12, 1, 16), it.getRange());
     });
