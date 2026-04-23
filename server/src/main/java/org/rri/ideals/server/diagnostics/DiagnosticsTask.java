@@ -72,7 +72,7 @@ class DiagnosticsTask implements Runnable {
     var client = LspContext.getContext(file.getProject()).getClient();
 
     try {
-      client.createProgress(new WorkDoneProgressCreateParams(Either.forLeft(token))).join();
+      client.createProgress(new WorkDoneProgressCreateParams(Either.forLeft(token))).get(5, java.util.concurrent.TimeUnit.SECONDS);
     } catch (Exception e) {
       LOG.warn("Failed to create progress: " + e.getMessage());
     }
