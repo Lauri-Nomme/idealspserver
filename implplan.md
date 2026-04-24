@@ -21,7 +21,7 @@ foundation, we should fix the existing ones first.
 - TextEditRearrangerTest (1)
 - LspPathTest (4)
 - OnTypeFormattingCommandTest (5)
-- FindUsagesTest (1)
+- FindUsagesTest (1) - ✅ Working (all 4 tests pass including cross-file references)
 - FindUsagesCommandTest (1)
 - DocumentHighlightCommandTest (1)
 - RenameCommandJavaTest (4)
