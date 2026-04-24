@@ -13,12 +13,15 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+
+import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImportListener;
+import com.intellij.util.concurrency.AppExecutorUtil;
 
 public class ProjectService {
   private final static Logger LOG = Logger.getInstance(ProjectService.class);
@@ -91,6 +94,7 @@ public class ProjectService {
     if (project != null) {
       waitUntilInitialized(project);
       ensureSourceRoots(project, projectPath);
+      registerSourceRootProtection(project, projectPath);
       cacheProject(projectPath, project);
     }
 
@@ -128,6 +132,57 @@ public class ProjectService {
   }
 
   /**
+   * Register listeners to re-apply source roots if they are wiped by async project initialization.
+   * After project open, external system plugins (Gradle, Maven) may run async import/sync that
+   * replaces the entire module structure, wiping manually-added content/source roots.
+   * We listen for import completion and also schedule a delayed fallback re-check.
+   */
+  private void registerSourceRootProtection(@NotNull Project project, @NotNull LspPath projectPath) {
+    // Listen for external system (Gradle/Maven) import completion
+    try {
+      project.getMessageBus().connect().subscribe(
+          ProjectDataImportListener.TOPIC,
+          new ProjectDataImportListener() {
+            @Override
+            public void onImportFinished(@Nullable String path) {
+              LOG.info("External system import finished, re-checking source roots");
+              AppExecutorUtil.getAppExecutorService().execute(() -> {
+                if (!project.isDisposed()) {
+                  ensureSourceRoots(project, projectPath);
+                }
+              });
+            }
+
+            @Override
+            public void onImportFailed(@Nullable String path, @NotNull Throwable t) {
+              LOG.info("External system import failed (" + t.getMessage() + "), re-checking source roots");
+              AppExecutorUtil.getAppExecutorService().execute(() -> {
+                if (!project.isDisposed()) {
+                  ensureSourceRoots(project, projectPath);
+                }
+              });
+            }
+          }
+      );
+    } catch (Exception e) {
+      LOG.warn("Failed to subscribe to ProjectDataImportListener", e);
+    }
+
+    // Fallback: schedule multiple delayed re-checks to catch root wipe at different timings.
+    // The wipe happens between ~6-26s after project open (exact timing varies).
+    // Multiple checks ensure we catch it quickly without knowing the exact timing.
+    for (int delaySec : new int[]{5, 15, 30}) {
+      final int delay = delaySec;
+      AppExecutorUtil.getAppScheduledExecutorService().schedule(() -> {
+        if (!project.isDisposed()) {
+          LOG.info("Delayed source root re-check (" + delay + "s after project open)");
+          ensureSourceRoots(project, projectPath);
+        }
+      }, delay, TimeUnit.SECONDS);
+    }
+  }
+
+  /**
    * Ensure the project has at least one module with the workspace folder as a content/source root.
    * Without this, GlobalSearchScope (which relies on IntelliJ's word index) won't find any
    * project files, breaking cross-file references, find usages, etc.
@@ -139,8 +194,8 @@ public class ProjectService {
     // Check if any module already has content roots
     for (var module : modules) {
       var rootManager = ModuleRootManager.getInstance(module);
-      if (rootManager.getContentRoots().length > 0) {
-        LOG.info("Project already has content roots configured, skipping source root setup");
+      var contentRoots = rootManager.getContentRoots();
+      if (contentRoots.length > 0) {
         return;
       }
     }
@@ -163,7 +218,7 @@ public class ProjectService {
           var module = modules.length > 0 ? modules[0]
               : moduleManager.newModule(
                   Files.createTempDirectory("ideals-lsp-").resolve("lsp-module.iml"),
-                  "WEB_MODULE");
+                  "JAVA_MODULE");
           var modifiableModel = ModuleRootManager.getInstance(module).getModifiableModel();
           ContentEntry contentEntry = modifiableModel.addContentEntry(dir);
           contentEntry.addSourceFolder(dir, false);
