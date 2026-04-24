@@ -12,7 +12,7 @@ As of 2026, the IdeaLS plugin relies on core IntelliJ APIs for language server s
 
 ### What this means for IdeaLS / this plugin
 - The plugin CANNOT build or run with completion support on IntelliJ IDEA 2025.2+ or 2026 due to the locked APIs.
-- Completion/LSP server features DO NOT WORK and cannot be enabled for these target platforms.
+- Completion/LSP server features are blocked on IntelliJ 2026+ due to API changes (not platform limitation). References and other LSP features work.
 - This is a hard platform limitation. You **must build and run the plugin using an older supported IntelliJ IDEA target** (2025.1 or earlier—branch 251 or below).
 
 ### Current status

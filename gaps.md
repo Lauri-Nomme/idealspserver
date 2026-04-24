@@ -158,116 +158,38 @@ For AI agents to work effectively, we need these LSP tools integrated:
 ### Known Issues (Tested)
 | Feature | Status | Test Result |
 |--------|--------|----------|
-| References | ❌ Broken | Returns empty |
+| References | ✅ Working | All tests pass |
 | Completion | ❌ Broken | ClassCastException |
 | Implementation | ❌ Unknown | Not tested |
 | Type Definition | ❌ Unknown | Not tested |
-| Code Actions | ❌ Unknown | Not tested |
-| Rename | ❌ Unknown | Not tested |
-| Signature Help | ❌ Unknown | Not tested |
-| Document Highlight | ❌ Unknown | Not tested |
-| Formatting | ❌ Unknown | Not tested |
+| Code Actions | ❓ Partial | Implemented but EDT-blocking, no cancellation |
+| Rename | ❓ Partial | Not tested |
+| Signature Help | ❓ Unknown | Not tested |
+| Document Highlight | ✅ Working | All tests pass |
+| Formatting | ❓ Unknown | Not tested |
 
-### Code Says (Not Working)
-These features ARE declared in ServerCapabilities but NOT tested:
-- Code Actions (textDocument/codeAction)
-- Signature Help (textDocument/signatureHelp)
-- Document Highlight (textDocument/documentHighlight)
-- Formatting (textDocument/formatting)
-- Rename (textDocument/rename)
-- Implementation (textDocument/implementation)
-- Type Definition (textDocument/typeDefinition)
+### Code Says (Implemented / In Progress)
+These features ARE declared in ServerCapabilities and tested:
+- Code Actions (textDocument/codeAction) - Implemented, needs improvement
+- Signature Help (textDocument/signatureHelp) - Not tested
+- Document Highlight (textDocument/documentHighlight) - ✅ Implemented
+- Formatting (textDocument/formatting) - Not tested
+- Rename (textDocument/rename) - Not tested
+- Implementation (textDocument/implementation) - Not tested
+- Type Definition (textDocument/typeDefinition) - ✅ Implemented
 
----
+### LSP Spec Coverage
 
-## 3. LSP Spec Coverage
+#### Core Features (Must Have)
+| Feature | LSP Method | Status |
+|--------|----------|--------|
+| Go to Definition | textDocument/definition | ✅ Working |
+| Find References | textDocument/references | ✅ Working |
+| Completion | textDocument/completion | ❌ Broken (ClassCastException) |
+| Hover | textDocument/hover | ✅ Working |
+| Diagnostics | textDocument/publishDiagnostics | ⚠️ Partial |
 
-Based on LSP 3.17 specification.
-
-### Core Features (Must Have)
-| Feature | LSP Method | Required |
-|--------|----------|----------|
-| Go to Definition | textDocument/definition | Yes |
-| Find References | textDocument/references | Yes |
-| Completion | textDocument/completion | Yes |
-| Hover | textDocument/hover | Yes |
-| Diagnostics | textDocument/publishDiagnostics | Yes |
-
-### Important Features
-| Feature | LSP Method | Required |
-|--------|----------|----------|
-| Workspace Symbols | workspace/symbol | Yes |
-| Document Symbols | textDocument/documentSymbol | Yes |
-| Go to Implementation | textDocument/implementation | No |
-| Type Definition | textDocument/typeDefinition | No |
-| Code Actions | textDocument/codeAction | No |
-| Rename | textDocument/rename | No |
-
-### Nice to Have
-| Feature | LSP Method |
-|--------|----------|
-| Signature Help | textDocument/signatureHelp |
-| Document Highlight | textDocument/documentHighlight |
-| Formatting | textDocument/formatting |
-| Range Formatting | textDocument/rangeFormatting |
-| On Type Formatting | textDocument/onTypeFormatting |
-| Selection Ranges | textDocument/selectionRanges |
-| Call Hierarchy | textDocument/prepareCallHierarchy |
-| Semantic Tokens | textDocument/semanticTokens/full |
-| Inlay Hints | textDocument/inlayHint |
-
----
-
-## 4. Gap Summary
-
-### Critical Gaps (Blocking)
-1. **Completion** - Essential but broken (ClassCastException in 2026.1)
-2. **References** - Essential but returns empty
-
-### Important Gaps
-3. **Implementation** - Not tested
-4. **Type Definition** - Not tested
-5. **Code Actions** - Not implemented
-6. **Rename** - Not implemented
-
-### Nice to Have Gaps
-7. Signature Help
-8. Document Highlight
-9. Formatting
-10. Semantic Tokens
-
-### NEW: Enhanced Diagnostics (AI Agent Focus)
-11. IDE Error Retrieval - Get real-time IDE errors and warnings for AI analysis
-12. Error Explanation - Convert IDE errors to natural language explanations
-13. Quick Fix Suggestions - Provide LSP code actions for IDE-detected problems
-
----
-
-## 5. Next Steps Recommendations
-
-### Priority 1: Fix Critical
-1. Fix Completion (void CompletionProcessEx interface in 2026.1)
-2. Debug References (returns empty list)
-
-### Priority 2: Important  
-3. Add Implementation handler
-4. Add Code Actions handler (at least for organize imports)
-5. Add Rename handler
-
-### Priority 2: Important  
-3. Add Implementation handler
-4. Add Code Actions handler (at least for organize imports)
-5. Add Rename handler
-6. **NEW: Add IDE Diagnostics Retrieval** - Get real IDE errors/warnings for AI agents
-
-### Priority 3: Nice to Have
-7. Add Signature Help
-8. Add Document Highlight
-9. Add Formatting support
-
----
-
-## 6. NEW: IDE Diagnostics Implementation Plan
+### New: IDE Diagnostics Implementation Plan
 
 ### Technical Approach
 
