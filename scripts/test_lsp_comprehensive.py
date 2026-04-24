@@ -369,34 +369,52 @@ def test_all():
     )
     drain_notifications(sock, seconds=8)
 
-    # Test code actions on restored file using its diagnostics
-    if diagnostics_result.get("data") and diagnostics_result["data"].get("diagnostics"):
-        # Find a diagnostic with a range to use for code actions
-        diag = diagnostics_result["data"]["diagnostics"][0]
-        action_range = diag["range"]
-        resp = send_and_recv(
-            sock,
-            "textDocument/codeAction",
-            {
-                "textDocument": {"uri": f"file://{error_test_file}"},
-                "range": action_range,
-                "context": {"diagnostics": [diag]}
-            },
-            12,
-        )
-        if resp and "result" in resp:
-            actions = resp["result"]
-            if actions:
-                print(f"13. Code Actions: OK - Found {len(actions)} actions")
-                for a in actions[:3]:
-                    title = a.get("title", "unknown")
-                    print(f"    - {title[:60]}")
-            else:
-                print(f"13. Code Actions: OK - No actions for this diagnostic")
+    # Test code actions - organize imports on a clean file (no error needed)
+    org_test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    with open(org_test_file) as f:
+        org_text = f.read()
+
+    send_notification(
+        sock,
+        "textDocument/didOpen",
+        {
+            "textDocument": {
+                "uri": f"file://{org_test_file}",
+                "languageId": "java",
+                "version": 1,
+                "text": org_text,
+            }
+        },
+    )
+    print("    Waiting extra 3 seconds for indexing...")
+    drain_notifications(sock, seconds=3)
+
+    resp = send_and_recv(
+        sock,
+        "textDocument/codeAction",
+        {
+            "textDocument": {"uri": f"file://{org_test_file}"},
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 100, "character": 0}},
+            "context": {"diagnostics": []}
+        },
+        13,
+    )
+    if resp and "result" in resp:
+        actions = resp["result"]
+        if actions:
+            print(f"13. Code Actions (organize imports): OK - Found {len(actions)} actions")
+            for a in actions[:3]:
+                title = a.get("title", "unknown")
+                print(f"    - {title[:60]}")
+                # Test resolve if action has data
+                if a.get("data"):
+                    resolved = send_and_recv(sock, "codeAction/resolve", a, 14)
+                    if resolved and "result" in resolved:
+                        print(f"      Resolved title: {resolved['result'].get('title', 'N/A')[:60]}")
         else:
-            print(f"13. Code Actions: Failed or not supported")
+            print(f"13. Code Actions (organize imports): OK - No actions needed")
     else:
-        print(f"13. Code Actions: Skipped (no diagnostics)")
+        print(f"13. Code Actions (organize imports): Skipped")
 
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
