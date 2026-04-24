@@ -150,8 +150,15 @@ def test_all():
             }
         },
     )
-    print("2. Opened test file, waiting for indexing...")
-    drain_notifications(sock, seconds=10)
+    print("2. Opened test file, waiting for indexing and source root stabilization...")
+    drain_notifications(sock, seconds=20)
+
+    # Check if didOpen already produced diagnostics
+    if diagnostics_result.get("data"):
+        diags = diagnostics_result["data"].get("diagnostics", [])
+        print(f"    (didOpen produced {len(diags)} diagnostics)")
+    else:
+        print(f"    (no diagnostics from didOpen)")
 
     # Test document symbols
     resp = send_and_recv(
@@ -171,28 +178,39 @@ def test_all():
     else:
         print(f"3. Document symbols: FAILED - {resp}")
 
-    # Test definition - line 20 has "LspServer" class declaration
+    # Test definition - line 28 (0-indexed) has "MyTextDocumentService" reference at char 16
     resp = send_and_recv(
         sock,
         "textDocument/definition",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 20, "character": 10},
+            "position": {"line": 28, "character": 20},
         },
         3,
     )
     if resp and "result" in resp and resp["result"]:
-        print(f"4. Definition: OK - Found {len(resp['result'])} location(s)")
+        result = resp["result"]
+        if isinstance(result, list):
+            print(f"4. Definition: OK - Found {len(result)} location(s)")
+            for loc in result[:2]:
+                uri = loc.get("uri", loc.get("targetUri", ""))
+                print(f"    - {uri.split('/')[-1]}")
+        else:
+            print(f"4. Definition: OK")
     else:
         print(f"4. Definition: FAILED or no result")
+        if resp:
+            print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
+            if resp.get("error"):
+                print(f"    error: {resp['error']}")
 
-    # Test references - for now skip this broken feature
+    # Test references - find references to MyTextDocumentService at line 28
     resp = send_and_recv(
         sock,
         "textDocument/references",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 27, "character": 10},
+            "position": {"line": 28, "character": 20},
             "context": {"includeDeclaration": True},
         },
         4,
@@ -230,13 +248,13 @@ def test_all():
     else:
         print(f"7. Completion: FAILED")
 
-    # Test hover
+    # Test hover - line 28 (0-indexed) has MyTextDocumentService
     resp = send_and_recv(
         sock,
         "textDocument/hover",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 20, "character": 10},
+            "position": {"line": 28, "character": 20},
         },
         7,
     )
@@ -245,13 +263,14 @@ def test_all():
     else:
         print(f"8. Hover: not supported or failed")
 
-    # Test type definition - line 4 has Logger import
+    # Test type definition - line 28 (0-indexed) has "myTextDocumentService" variable at char 37
+    # Type definition should navigate to MyTextDocumentService class
     resp = send_and_recv(
         sock,
         "textDocument/typeDefinition",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 4, "character": 32},
+            "position": {"line": 28, "character": 40},
         },
         8,
     )
@@ -259,40 +278,56 @@ def test_all():
         result = resp["result"]
         if isinstance(result, list):
             print(f"9. Type definition: OK - Found {len(result)} location(s)")
+            for loc in result[:2]:
+                uri = loc.get("uri", loc.get("targetUri", ""))
+                print(f"    - {uri.split('/')[-1]}")
         else:
             print(f"9. Type definition: OK")
     else:
-        print(f"9. Type definition: not supported or no result")
+        err = resp.get("error") if resp else None
+        print(f"9. Type definition: FAILED (error={err})")
+        if resp:
+            print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
 
-    # Test implementation - line 27 has class declaration
+    # Test implementation - line 26 (0-indexed) has LspSession interface at char 71
+    # Should find implementing classes
     resp = send_and_recv(
         sock,
         "textDocument/implementation",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 27, "character": 7},
+            "position": {"line": 26, "character": 73},
         },
         9,
     )
     if resp and "result" in resp and resp["result"]:
-        print(f"10. Implementation: OK")
+        result = resp["result"]
+        if isinstance(result, list):
+            print(f"10. Implementation: OK - Found {len(result)} location(s)")
+        else:
+            print(f"10. Implementation: OK")
     else:
-        print(f"10. Implementation: not supported or no result")
+        err = resp.get("error") if resp else None
+        print(f"10. Implementation: FAILED (error={err})")
+        if resp:
+            print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
 
-    # Test document highlight - line 28 has method declarations
+    # Test document highlight - line 27 (0-indexed) has "LOG" at char 30
+    # LOG is used multiple times in the file
     resp = send_and_recv(
         sock,
         "textDocument/documentHighlight",
         {
             "textDocument": {"uri": f"file://{test_file}"},
-            "position": {"line": 28, "character": 8},
+            "position": {"line": 27, "character": 30},
         },
         10,
     )
     if resp and "result" in resp and resp["result"]:
         print(f"11. Document highlight: OK - Found {len(resp['result'])} highlights")
     else:
-        print(f"11. Document highlight: not supported or no result")
+        err = resp.get("error") if resp else None
+        print(f"11. Document highlight: FAILED (error={err})")
 
     # Test diagnostics on existing file - use LspServer.java which we know exists
     error_test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
@@ -309,47 +344,59 @@ def test_all():
     print("    Sent change to LspServer.java to introduce error...")
     drain_notifications(sock, seconds=8)
 
-    # Check if diagnostics were received
+    # Check if diagnostics were received (from either didOpen or didChange)
     if diagnostics_result.get("data"):
         diags = diagnostics_result["data"].get("diagnostics", [])
         if diags:
-            print(f"13. Diagnostics: OK - Found {len(diags)} diagnostics")
-            for d in diags[:2]:
-                msg = d.get("message", "")[:50]
-                print(f"    - {msg}")
+            print(f"12. Diagnostics: OK - Found {len(diags)} diagnostics")
+            for d in diags[:3]:
+                msg = d.get("message", "")[:60]
+                sev = {1: "Error", 2: "Warn", 3: "Info", 4: "Hint"}.get(d.get("severity"), "?")
+                print(f"    - [{sev}] {msg}")
         else:
-            print(f"13. Diagnostics: OK - but no errors")
+            print(f"12. Diagnostics: OK - but no errors")
     else:
-        print(f"13. Diagnostics: No diagnostics received")
+        print(f"12. Diagnostics: No diagnostics received")
 
-    # Test code actions at error location
+    # Restore original file content so code actions work on a proper file
+    send_notification(
+        sock,
+        "textDocument/didChange",
+        {
+            "textDocument": {"uri": f"file://{error_test_file}", "version": 3},
+            "contentChanges": [{"text": text}],
+        },
+    )
+    drain_notifications(sock, seconds=8)
+
+    # Test code actions on restored file using its diagnostics
     if diagnostics_result.get("data") and diagnostics_result["data"].get("diagnostics"):
+        # Find a diagnostic with a range to use for code actions
+        diag = diagnostics_result["data"]["diagnostics"][0]
+        action_range = diag["range"]
         resp = send_and_recv(
             sock,
             "textDocument/codeAction",
             {
                 "textDocument": {"uri": f"file://{error_test_file}"},
-                "range": {
-                    "start": {"line": 0, "character": 0},
-                    "end": {"line": 0, "character": 10}
-                },
-                "context": {"diagnostics": diagnostics_result["data"].get("diagnostics", [])}
+                "range": action_range,
+                "context": {"diagnostics": [diag]}
             },
             12,
         )
-        if resp and "result" in resp and resp["result"]:
+        if resp and "result" in resp:
             actions = resp["result"]
             if actions:
-                print(f"14. Code Actions: OK - Found {len(actions)} actions")
+                print(f"13. Code Actions: OK - Found {len(actions)} actions")
                 for a in actions[:3]:
                     title = a.get("title", "unknown")
-                    print(f"    - {title[:50]}")
+                    print(f"    - {title[:60]}")
             else:
-                print(f"14. Code Actions: No actions available")
+                print(f"13. Code Actions: OK - No actions for this diagnostic")
         else:
-            print(f"14. Code Actions: Failed or not supported")
+            print(f"13. Code Actions: Failed or not supported")
     else:
-        print(f"14. Code Actions: Skipped (no diagnostics)")
+        print(f"13. Code Actions: Skipped (no diagnostics)")
 
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
