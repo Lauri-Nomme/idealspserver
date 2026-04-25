@@ -1,6 +1,10 @@
-# IntelliJ 2026.1 API Changes - Diagnostics & Code Actions
+# IntelliJ 2026.1 API Changes - Diagnostics & Code Actions - ✅ FIX APPLIED
 
-## Root Cause
+## Status: Fix implemented and working (April 2026)
+
+The required API changes described in this document have been implemented in `DiagnosticsTask.java`.
+
+## Root Cause (Original)
 
 IntelliJ 2026.1 introduced a new context-based highlighting architecture. The
 daemon highlighting system now requires `HighlightingSession` and `CodeInsightContext`

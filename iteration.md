@@ -57,7 +57,7 @@ cd /vokk/home/lauri/dev/idealspserver/git
 python3 scripts/test_lsp_comprehensive.py
 ```
 
-### Test Output
+### Test Output (April 2026)
 
 ```
 Connected to LSP server
@@ -65,15 +65,17 @@ Connected to LSP server
 1. Initialize: OK
 2. Opened test file, waiting for indexing...
 3. Document symbols: OK - Found 1 symbols
-   - LspServer.java
 4. Definition: OK - Found 1 location(s)
-5. References: FAILED or no result
-6. Workspace symbols: OK - Found 27 symbols
-7. Completion: OK - Found 37 completions
+5. References: OK - Found 4+ references
+6. Workspace symbols: OK - Found 43 symbols
+7. Completion: OK - Found 43 completions
 8. Hover: OK
 9. Type definition: OK - Found 1 location(s)
-10. Implementation: OK
-11. Document highlight: not supported or no result
+10. Implementation: OK - Found 1 location(s)
+11. Document highlight: OK - Found 7 highlights
+12. Diagnostics: OK - Found 3 diagnostics
+13. Code Actions: OK
+14. Cross-file References: OK - Found 5+ references
 
 === All tests completed ===
 ```

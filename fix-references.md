@@ -1,40 +1,45 @@
-# Fix References (Find Usages) in SDK 2026.1
+# Fix References (Find Usages) in SDK 2026.1 - ✅ FIXED
 
-## Problem
+## Status: COMPLETED
 
-The `textDocument/references` LSP endpoint returns 0 results in SDK 2026.1 even when references exist in the code.
+The `textDocument/references` LSP endpoint now works correctly in SDK 2026.1, including cross-file references.
 
-## Current Behavior
+## Problem (Original)
 
-1. LSP protocol test: "References: FAILED or no result"
-2. Unit tests: fail - ReferencesSearch returns 0 results
-3. Log shows element found but search returns 0
+The `textDocument/references` LSP endpoint returned 0 results in SDK 2026.1 even when references existed in the code.
 
-## What Was Tried
+## Fix Applied
 
-See git log for attempts in FindUsagesCommand.java.
+### Root Cause
+`FindDefinitionCommandBase.execute()` was setting `targetElement = originalElem` (the element at cursor in the source file) without calling the `findDefinitions()` abstract method. Both origin and target resolved to the same element.
 
-### Attempt 1: ReferencesSearch.search(target)
+### Solution (commit: 330b910)
+Fixed `FindDefinitionCommandBase` to actually call `findDefinitions(editor, offset)` method:
+
 ```java
-var results = ReferencesSearch.search(target).findAll();
-// Returns 0 results
+// Before (broken):
+var targetElement = originalElem;
+return List.of(targetElement).stream().map(elem -> { ... });
+
+// After (fixed):
+return findDefinitions(editor, offset).map(targetElement -> { ... });
 ```
 
-### Attempt 2: FindUsagesManager with UsageCollectingViewManager
-```java
-var manager = ((FindManagerImpl) FindManager.getInstance(project)).getFindUsagesManager();
-var handler = manager.getFindUsagesHandler(target, FindUsagesHandlerFactory.OperationMode.USAGES_WITH_DEFAULT_OPTIONS);
-// Handler is found but still returns 0 results
+### Additional Fixes for Cross-File References (commits: 3a56e73, 0a5be30, a3a4c19)
+1. Added source root protection against async wipe
+2. Used `FindUsagesManager` approach for cross-file references
+3. Added `FindUsagesCommand` with proper implementation
+
+## Test Results (April 2026)
+
+```
+5. References: OK - Found 4 references
+15. Cross-file References: OK - Found 5 references
 ```
 
-### Attempt 3: Various PSI tree walk strategies
-- Walk to PsiClassImpl, PsiMethodImpl, PsiFieldImpl
-- Use PsiNamedElement, PsiNameIdentifierOwner
-- All failed - tree walk goes past the definition or reaches wrong element
+## Reference Implementation Used
 
-## Reference Implementation
-
-The reference server (Ruin0x11/intellij-lsp-server) works using:
+The fix was inspired by the reference server (Ruin0x11/intellij-lsp-server) which uses:
 
 ### Key Approach: Editor + TargetElementUtil
 ```kotlin
@@ -53,127 +58,17 @@ fun findUsages(editor: Editor, cancelToken: CancelChecker?): List<Usage> {
 }
 ```
 
-### TargetElementUtil Usage
-```kotlin
-// EditorUtil.kt
-fun findTargetElement(editor: Editor): PsiElement? =
-    TargetElementUtil
-        .findTargetElement(editor, TargetElementUtil.getInstance().allAccepted)
-```
+## Key Files Modified
 
-### Editor Creation
-```kotlin
-// ProjectUtil.kt
-fun createEditor(context: Disposable, file: PsiFile, position: Position): EditorEx {
-    val doc = getDocument(file)!!
-    val editorFactory = EditorFactory.getInstance()
-    val created = editorFactory.createEditor(doc, file.project) as EditorEx
-    created.caretModel.moveToLogicalPosition(LogicalPosition(position.line, position.character))
-    Disposer.register(context, Disposable { editorFactory.releaseEditor(created) })
-    return created
-}
-```
-
-## SDK 2026.1 API Check
-
-### FindUsagesManager (confirmed exists in IU-261.22158.277)
-```java
-public FindUsagesHandler getFindUsagesHandler(PsiElement, boolean);
-public FindUsagesHandler getFindUsagesHandler(PsiElement, OperationMode);
-public FindUsagesHandler getNewFindUsagesHandler(PsiElement, boolean);
-public static UsageSearcher createUsageSearcher(FindUsagesHandlerBase, PsiElement[], PsiElement[], FindUsagesOptions);
-public static ProgressIndicator startProcessUsages(...);
-```
-
-### ReferencesSearch (unchanged)
-```java
-public static Query<PsiReference> search(PsiElement element);
-public static Query<PsiReference> search(PsiElement element, SearchScope scope);
-public static Query<PsiReference> search(PsiElement element, SearchScope scope, boolean caseSensitive);
-public static Query<PsiReference> search(SearchParameters params);
-```
-
-## Root Cause Hypothesis
-
-When `file.findElementAt(offset)` is used with file offset, it returns the leaf element (e.g., `PsiIdentifier`) at that position. This is often a **reference** TO something, not the **declaration** itself.
-
-Example: At "LOG" in line 30 `LOG.warn("...")`:
-- file.findElementAt(offset) returns: PsiIdentifier:LOG (the reference usage)
-- TargetElementUtil.findTargetElement(editor) returns: Logger class (the declaration)
-
-ReferencesSearch.search() needs the DECLARATION element to find all USAGES.
-
-## Test Setup
-
-### Test File
-- `server/src/main/java/org/rri/ideals/server/LspServer.java`
-- Line 30 has `LOG` field reference
-- Line 55 has `LOG.info()` usage
-
-### Test Position
-```python
-# test_lsp_comprehensive.py line 30, character 30
-{
-    "textDocument": {"uri": f"file://{test_file}"},
-    "position": {"line": 30, "character": 30},
-    "context": {"includeDeclaration": True},
-}
-```
-
-### Expected
-- Find references to Logger field in LspServer.java
-- Should return at least 2 locations (lines 30 and 55)
-
-## Fix Strategy
-
-### Option A: Use Editor + TargetElementUtil (with reference server approach)
-1. Create Editor from PsiFile
-2. Move caret to position
-3. Use TargetElementUtil.findTargetElement(editor) - should resolve to declaration
-4. Pass declaration to ReferencesSearch or FindUsagesManager
-
-### Option B: Find target via PsiReference.resolve()
-1. Get reference at position: `element.getReferences()`
-2. Resolve to declaration: `ref.resolve()`
-3. Pass resolved element to ReferencesSearch
-
-### Option C: Use FindUsagesManager.startProcessUsages directly
-```java
-// Using static method
-FindUsagesHandler handler = manager.getFindUsagesHandler(element, true);
-UsageSearcher searcher = FindUsagesManager.createUsageSearcher(
-    handler, 
-    handler.getPrimaryElements(),
-    handler.getSecondaryElements(),
-    handler.getFindUsagesOptions()
-);
-searcher.generate(usage -> { 
-    // collect usages 
-});
-```
-
-## Key Files to Modify
-
-- `server/src/main/java/org/rri/ideals/server/references/FindUsagesCommand.java`
-
-## Logging
-
-Add to FindUsagesCommand.execute():
-```java
-LOG.warn("FindUsagesCommand.execute: offset=" + offset);
-LOG.warn("FindUsagesCommand.execute: element=" + element + ", class=" + (element != null ? element.getClass() : "null"));
-LOG.warn("FindUsagesCommand.execute: resolved element=" + resolved + ", class=" + (resolved != null ? resolved.getClass() : "null"));
-LOG.warn("FindUsagesCommand.execute: ReferencesSearch found " + results.size());
-```
+- `server/src/main/java/org/rri/ideals/server/references/FindDefinitionCommandBase.java` - Fixed to call findDefinitions()
+- `server/src/main/java/org/rri/ideals/server/references/FindUsagesCommand.java` - Added for cross-file support
 
 ## Related Tests
 
-- `server/src/test/java/org/rri/ideals/server/lsp/ReferencesTest.java`
-- `scripts/test_lsp_comprehensive.py` (run to verify)
+- `server/src/test/java/org/rri/ideals/server/lsp/ReferencesTest.java` - ✅ All tests pass
+- `scripts/test_lsp_comprehensive.py` - ✅ References working
 
 ## Links
 
 - Reference server: https://github.com/Ruin0x11/intellij-lsp-server
-- FindUsagesCommand.kt: src/main/kotlin/com/ruin/lsp/commands/document/find/
-- EditorUtil.kt: src/main/kotlin/com/ruin/lsp/util/
-- SDK 2026.1: /data/idea/idea-IU-261.22158.277/
+- SDK 2026.1: Compatible and working
