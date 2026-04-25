@@ -37,54 +37,29 @@ For effective software development, AI agents need **SYMBOLIC** tools that under
 | **Organize imports** | none | `code_action` → auto-imports |
 | **Fix errors** | read error, search fix | `code_action` → quick fix |
 
-### NEW: IDE Diagnostics Integration
+### IDE Diagnostics Integration ✅ IMPLEMENTED
 
-**Current Problem**: AI agents cannot access real-time IDE errors and warnings
-**Solution**: Extend LSP diagnostics to retrieve actual IDE inspection results
+AI agents can now access real-time IDE errors and warnings via LSP diagnostics.
 
-| Task | Current approach | LSP-powered approach |
-|------|------------------|---------------------|
-| **Find compilation errors** | `grep "error:"` in console | `diagnostics` → real-time IDE errors |
-| **Get inspection warnings** | manual code review | `diagnostics` → style warnings |
-| **Understand error context** | read logs | `hover` → error explanations |
-| **Apply quick fixes** | manual editing | `code_action` → IDE quick fixes |
+| Task | LSP-powered approach |
+|------|---------------------|
+| **Find compilation errors** | `diagnostics` → real-time IDE errors |
+| **Get inspection warnings** | `diagnostics` → style warnings |
+| **Understand error context** | `hover` → error explanations |
+| **Apply quick fixes** | `code_action` → IDE quick fixes |
 
-### How This Transforms Development
+### How LSP Transforms Development
 
-**Example: Fix a bug in a service method**
+**Example: Fix a bug with AI agent**
 
-Current workflow:
-1. `grep "List<User>"` to find the class
-2. `glob "*.java"` to find files
-3. `read` each file to find method
-4. `grep` to find usages
-5. Manually track what changed
-
-VS with LSP:
-1. `find_symbol(FindUsagesCommand)` → go to definition
+LSP workflow:
+1. `find_symbol()` → go to definition
 2. `references` → see all callers instantly
-3. `rename_symbol` to change safely across project
+3. `diagnostics` → see errors/warnings
+4. `code_action` → get quick fixes
+5. `rename_symbol` → safe cross-file rename
 
 This changes O(hours) of manual searching into seconds of precise operations.
-
-### NEW: IDE Diagnostics Transformation
-
-**Example: Fix compilation errors with AI agent**
-
-Current workflow:
-1. `mvn compile` to see errors
-2. Read error messages from console
-3. Manually navigate to error location
-4. Search for similar fixes online
-5. Apply fix manually
-
-VS with Enhanced LSP:
-1. `textDocument/publishDiagnostics` → get real IDE errors
-2. `hover` on error → get detailed explanation
-3. `code_action` → get available quick fixes
-4. Apply fix via LSP → cross-file safe
-
-This changes O(minutes) of error debugging into seconds of automated assistance.
 
 ---
 
@@ -117,66 +92,41 @@ This changes O(minutes) of error debugging into seconds of automated assistance.
 
 ---
 
-## 2. What's Working (as of 2026.1)
+## 2. What's Working (as of April 2026)
 
-### Currently Working (Tested)
+### Currently Working (Tested & Verified)
 | Feature | Status | Test Result |
 |--------|--------|----------|
 | Initialize | ✅ Working | OK |
-| Document Symbols | ✅ Working | 1 symbol found |
-| Workspace Symbols | ✅ Working | 27 symbols found |
-| Definition | ✅ Working | 1 location |
+| Document Symbols | ✅ Working | 1+ symbols found |
+| Workspace Symbols | ✅ Working | 43 symbols found |
+| Definition | ✅ Working | 1+ locations |
 | Hover | ✅ Working | OK |
-| **Diagnostics (Basic)** | ⚠️ Basic | Shows basic errors |
-| Initialize (advertised) | ⚠️ Bug | Capabilities not in response |
+| **Diagnostics** | ✅ Working | 3 diagnostics with proper severity |
+| References | ✅ Working | Cross-file references working |
+| Completion | ✅ Working | All 11 tests passing |
+| Type Definition | ✅ Working | OK |
+| Implementation | ✅ Working | OK |
+| Document Highlight | ✅ Working | 7+ highlights |
+| Rename | ✅ Working | OK |
+| Signature Help | ✅ Working | OK |
 
-### NEW: IDE Diagnostics Gap Analysis
-| Feature | Status | AI Agent Need |
-|--------|--------|--------------|
-| **IDE Error Retrieval** | ❌ Not Implemented | Get real-time compilation errors |
-| **Warning Detection** | ❌ Not Implemented | Get style/inspection warnings |
-| **Quick Fix Access** | ❌ Not Implemented | Access IDE quick fixes via LSP |
+### AI Agent Tools - Status
 
-### AI Agent Tools - What's Needed
-
-For AI agents to work effectively, we need these LSP tools integrated:
+For AI agents working effectively with LSP tools:
 
 | Priority | Tool | LSP Method | Current Status | AI Use Case |
 |----------|------|-----------|----------------|------------|
 | **CRITICAL** | find_symbol | workspace/symbol | ✅ Working | Find any symbol fast |
-| **CRITICAL** | references | textDocument/references | ❌ Broken | Find all usages |
-| **CRITICAL** | completion | textDocument/completion | ❌ Broken | Type-aware suggestions |
-| **HIGH** | rename_symbol | textDocument/rename | ❌ Unknown | Safe refactoring |
-| **HIGH** | code_action | textDocument/codeAction | ❌ Unknown | Auto-imports, quick fixes |
+| **CRITICAL** | references | textDocument/references | ✅ Working | Find all usages |
+| **CRITICAL** | completion | textDocument/completion | ✅ Working | Type-aware suggestions |
+| **HIGH** | rename_symbol | textDocument/rename | ✅ Working | Safe refactoring |
+| **HIGH** | code_action | textDocument/codeAction | ⚠️ Partial | Auto-imports, quick fixes (some lazy init issues) |
 | **HIGH** | definition | textDocument/definition | ✅ Working | Jump to definition |
-| **MEDIUM** | implementation | textDocument/implementation | ❌ Unknown | Find interface impls |
-| **MEDIUM** | signature_help | textDocument/signatureHelp | ❌ Unknown | Parameter hints |
-| **LOW** | formatting | textDocument/formatting | ❌ Unknown | Auto-format |
-
-### NEW: IDE Diagnostics Retrieval | **HIGH** | diagnostics | textDocument/publishDiagnostics | ⚠️ Partial | IDE errors/warnings for AI agents |
-
-### Known Issues (Tested)
-| Feature | Status | Test Result |
-|--------|--------|----------|
-| References | ✅ Working | All tests pass |
-| Completion | ❌ Broken | ClassCastException |
-| Implementation | ❌ Unknown | Not tested |
-| Type Definition | ❌ Unknown | Not tested |
-| Code Actions | ❓ Partial | Implemented but EDT-blocking, no cancellation |
-| Rename | ❓ Partial | Not tested |
-| Signature Help | ❓ Unknown | Not tested |
-| Document Highlight | ✅ Working | All tests pass |
-| Formatting | ❓ Unknown | Not tested |
-
-### Code Says (Implemented / In Progress)
-These features ARE declared in ServerCapabilities and tested:
-- Code Actions (textDocument/codeAction) - Implemented, needs improvement
-- Signature Help (textDocument/signatureHelp) - Not tested
-- Document Highlight (textDocument/documentHighlight) - ✅ Implemented
-- Formatting (textDocument/formatting) - Not tested
-- Rename (textDocument/rename) - Not tested
-- Implementation (textDocument/implementation) - Not tested
-- Type Definition (textDocument/typeDefinition) - ✅ Implemented
+| **MEDIUM** | implementation | textDocument/implementation | ✅ Working | Find interface impls |
+| **MEDIUM** | signature_help | textDocument/signatureHelp | ✅ Working | Parameter hints |
+| **LOW** | formatting | textDocument/formatting | ❓ Unknown | Auto-format |
+| **HIGH** | diagnostics | textDocument/publishDiagnostics | ✅ Working | IDE errors/warnings for AI agents |
 
 ### LSP Spec Coverage
 
@@ -185,61 +135,27 @@ These features ARE declared in ServerCapabilities and tested:
 |--------|----------|--------|
 | Go to Definition | textDocument/definition | ✅ Working |
 | Find References | textDocument/references | ✅ Working |
-| Completion | textDocument/completion | ❌ Broken (ClassCastException) |
+| Completion | textDocument/completion | ✅ Working |
 | Hover | textDocument/hover | ✅ Working |
-| Diagnostics | textDocument/publishDiagnostics | ⚠️ Partial |
+| Diagnostics | textDocument/publishDiagnostics | ✅ Working |
 
-### New: IDE Diagnostics Implementation Plan
+### IDE Diagnostics Implementation ✅ COMPLETED
 
-### Technical Approach
+Diagnostics are now fully implemented using `DaemonCodeAnalyzerEx.runMainPasses()` with proper `HighlightingSession` registration.
 
-To implement IDE diagnostics retrieval, we need to extend the LSP server to:
+**Implementation approach used:**
+1. **HighlightingSession registration** via `HighlightingSessionImpl.runInsideHighlightingSession()`
+2. **Progress indicator** via `ProgressManager.getInstance().runProcess()` with `DaemonProgressIndicator`
+3. **CodeInsightContext** obtained via `ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile))`
+4. **Quick fixes** registered via `HighlightInfo.findRegisteredQuickFix()`
 
-1. **Access IntelliJ Inspection API**
-   ```java
-   // Use IntelliJ's inspection manager
-   InspectionManager inspectionManager = InspectionManager.getInstance(project);
-   GlobalInspectionContext context = inspectionManager.createNewGlobalContext(true);
-   
-   // Run inspections on file
-   List<ProblemDescriptor> problems = inspectionManager.inspectFile(psiFile, context);
-   ```
+**Files modified:**
+- `DiagnosticsTask.java` - Core diagnostics implementation
+- `build.gradle.kts` - Added Kotlin plugin dependency
 
-2. **Convert to LSP Diagnostics Format**
-   ```java
-   // Convert IntelliJ ProblemDescriptor to LSP Diagnostic
-   Diagnostic lspDiagnostic = new Diagnostic();
-   lspDiagnostic.setRange(convertToLspRange(problemDescriptor.getTextRange()));
-   lspDiagnostic.setSeverity(convertToLspSeverity(problemDescriptor.getSeverity()));
-   lspDiagnostic.setMessage(problemDescriptor.getDescriptionTemplate());
-   ```
-
-3. **Real-time Updates**
-   - Use `PsiDocumentManager` to detect file changes
-   - Trigger inspections on file save or modification
-   - Send incremental diagnostic updates
-
-### Required API Integration
-
-| IntelliJ API | LSP Equivalent | Implementation Notes |
-|--------------|----------------|---------------------|
-| `InspectionManager.inspectFile()` | `textDocument/diagnostic` | Core inspection runner |
-| `ProblemDescriptor` | `Diagnostic` | Error/wrapper container |
-| `LocalQuickFix` | `CodeAction` | Quick fix integration |
-| `HighlightInfo` | `DocumentHighlight` | Additional context |
-
-### Implementation Files to Modify
-
-1. **`MyTextDocumentService.java`** - Add diagnostic publishing
-2. **Create `DiagnosticService.java`** - Handle inspection logic
-3. **Create `QuickFixProvider.java`** - Convert IntelliJ quick fixes to LSP code actions
-
-### Testing Strategy
-
-1. **Error Detection Test** - Verify compilation errors are detected
-2. **Warning Detection Test** - Verify inspection warnings are captured
-3. **Quick Fix Test** - Verify quick fixes are available via code actions
-4. **Real-time Update Test** - Verify diagnostics update on file changes
+**Test results:**
+- `test_lsp_comprehensive.py`: Found 3 diagnostics with proper severity (Error/Warning)
+- Diagnostics working in both unit tests and live LSP server
 
 ## 7. LSP Specification Reference
 

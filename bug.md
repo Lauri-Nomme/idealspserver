@@ -1,4 +1,4 @@
-# Bug: Debug println left in IntelliJ Platform Gradle Plugin 2.14.0
+# Bug: Debug println left in IntelliJ Platform Gradle Plugin 2.14.0 - ✅ WORKAROUND APPLIED
 
 ## Repo to file at
 
@@ -7,6 +7,10 @@ https://github.com/JetBrains/intellij-platform-gradle-plugin/issues
 ## Suggested title
 
 `Debug println in moduleDescriptorCoordinates dumps ~2000 lines to stdout on every build`
+
+## Status: Workaround Applied (commit: caa253b)
+
+A suppression workaround has been applied in the project's build configuration.
 
 ## Body
 
@@ -47,17 +51,6 @@ private fun moduleDescriptorCoordinates(platformPath: Path) =
     }
 ```
 
-### Confirmed in bytecode
-
-Disassembly of `IntelliJPlatformDependenciesHelper.class` from the published 2.14.0 jar shows:
-
-```
-invokestatic  CollectionsKt.joinToString$default
-invokedynamic makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
-getstatic     java/lang/System.out:Ljava/io/PrintStream;
-invokevirtual java/io/PrintStream.println:(Ljava/lang/Object;)V
-```
-
 ### Impact
 
 - Fires on every Gradle invocation (build, test, any task that triggers dependency resolution)
@@ -65,23 +58,10 @@ invokevirtual java/io/PrintStream.println:(Ljava/lang/Object;)V
 - Cannot be suppressed by `--quiet` or `logging.level` since it uses `System.out.println` directly, not the Gradle logging API
 - Makes CI logs and terminal output unusable
 
-### Fix
-
-Remove or replace the `println` with `logger.debug()`:
+### Fix Applied (Workaround in settings.gradle.kts)
 
 ```kotlin
-// Remove this:
-println("it = \n${it.joinToString("\n")}")
-
-// Or replace with:
-logger.debug("moduleDescriptorCoordinates resolved: {}", it.size)
-```
-
-### Workaround
-
-Install a filtering `PrintStream` in `settings.gradle.kts`:
-
-```kotlin
+// Suppress the stdout spam from IntelliJ Platform Gradle Plugin 2.14.0
 val originalOut = System.out
 System.setOut(object : java.io.PrintStream(originalOut, true) {
     private var suppressing = false
@@ -95,6 +75,18 @@ System.setOut(object : java.io.PrintStream(originalOut, true) {
         originalOut.println(s)
     }
 })
+```
+
+### Proper Fix (Needed from JetBrains)
+
+Remove or replace the `println` with `logger.debug()` in the plugin itself:
+
+```kotlin
+// Remove this:
+println("it = \n${it.joinToString("\n")}")
+
+// Or replace with:
+logger.debug("moduleDescriptorCoordinates resolved: {}", it.size)
 ```
 
 ### Environment
