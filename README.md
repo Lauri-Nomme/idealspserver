@@ -16,6 +16,7 @@ The plugin builds and runs successfully on IntelliJ 2026.1. All core LSP feature
 - ✅ **Signature Help** - Working
 - ✅ **Type Definition** - Working
 - ✅ **Implementation** - Working
+- ✅ **Call Hierarchy** - prepareCallHierarchy, incomingCalls, outgoingCalls all working
 
 ### Build Configuration
 ```kotlin
