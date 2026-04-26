@@ -12,7 +12,7 @@ on:
       - 'server/**'
 jobs:
   test-server:
-    name: Test IdeaLS server
+    name: Test IdeaLS server (Java)
     strategy:
       matrix:
         os: [ macos-latest, ubuntu-latest, windows-latest ]
@@ -21,20 +21,61 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'corretto'
-          java-version: '17'
+          java-version: '21'
       - name: Run tests
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v3
         with:
           arguments: test
           build-root-directory: server
       - name: Upload test report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: success() || failure()
         with:
           name: test-report-${{ matrix.os }}
           path: "server/build/reports/tests/test/**/*.*"
+  test-comprehensive:
+    name: Test IdeaLS server (Python comprehensive)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '21'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build server
+        uses: gradle/gradle-build-action@v3
+        with:
+          arguments: installDist
+          build-root-directory: server
+      - name: Start server in background
+        run: |
+          cd server
+          ./build/install/ideals/bin/ideals &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          echo "$SERVER_PID" > /tmp/ideals_server.pid
+          sleep 15
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "Server failed to start"
+            exit 1
+          fi
+          echo "Server started successfully"
+      - name: Run comprehensive Python test
+        run: python3 scripts/test_lsp_comprehensive.py
+        working-directory: .
+      - name: Stop server
+        run: |
+          if [ -f /tmp/ideals_server.pid ]; then
+            kill $(cat /tmp/ideals_server.pid) 2>/dev/null || true
+            rm /tmp/ideals_server.pid
+          fi
