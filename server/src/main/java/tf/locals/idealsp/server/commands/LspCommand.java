@@ -27,7 +27,7 @@ public abstract class LspCommand<R> {
   protected abstract R execute(@NotNull ExecutorContext ctx);
 
   public @NotNull CompletableFuture<@Nullable R> runAsync(@NotNull Project project, @NotNull LspPath path) {
-    final var virtualFile = path.findVirtualFile();
+    final var virtualFile = path.refreshAndFindVirtualFile();
     if (virtualFile == null) {
       LOG.info("File not found: " + path);
       // todo mb need to throw excep

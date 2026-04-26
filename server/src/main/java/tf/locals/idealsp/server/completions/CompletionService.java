@@ -22,6 +22,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.diagnostic.PluginException;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
@@ -486,31 +488,63 @@ final public class CompletionService implements Disposable {
 
     LOG.info("prepareCompletionAndHandleInsert: about to call runProcess");
     ProgressManager.getInstance().runProcess(() -> {
-        ApplicationManager.getApplication().invokeAndWait(() -> {
-          var editor = EditorUtil.createEditor(disposable, copyToInsert,
-              cachedData.position);
-          CompletionInfo completionInfo = new CompletionInfo(editor, project, disposable);
+        try {
+          ApplicationManager.getApplication().invokeAndWait(() -> {
+            try {
+              var editor = EditorUtil.createEditor(disposable, copyToInsert,
+                  cachedData.position);
+              CompletionInfo completionInfo = new CompletionInfo(editor, project, disposable);
 
-          //noinspection UnstableApiUsage
-          var targets =
-              IdeDocumentationTargetProvider.getInstance(project).documentationTargets(editor,
-                  copyToInsert, cachedLookupElementWithMatcher.lookupElement());
-          if (targets != null && !targets.isEmpty()) {
-            unresolved.setDocumentation(toLspDocumentation(targets.get(0)));
-          }
+              try {
+                //noinspection UnstableApiUsage
+                var targets =
+                    IdeDocumentationTargetProvider.getInstance(project).documentationTargets(editor,
+                        copyToInsert, cachedLookupElementWithMatcher.lookupElement());
+                if (targets != null && !targets.isEmpty()) {
+                  unresolved.setDocumentation(toLspDocumentation(targets.get(0)));
+                }
+              } catch (IndexNotReadyException e) {
+                LOG.warn("Indexes not ready for documentation targets", e);
+              } catch (PluginException e) {
+                LOG.warn("Plugin exception getting documentation targets", e);
+              }
 
-          handleInsert(cachedData, cachedLookupElementWithMatcher, editor, copyToInsert, completionInfo);
-          int caretOffset = editor.getCaretModel().getOffset();
-          snippetBoundsRef.set(new TextRange(caretOffset, caretOffset));
+              handleInsert(cachedData, cachedLookupElementWithMatcher, editor, copyToInsert, completionInfo);
+              int caretOffset = editor.getCaretModel().getOffset();
+              snippetBoundsRef.set(new TextRange(caretOffset, caretOffset));
 
-          TemplateState templateState = TemplateManagerImpl.getTemplateState(editor);
-          var document = editor.getDocument();
-          if (templateState != null) {
-            handleSnippetsInsert(snippetBoundsRef, copyToInsert, templateState, document);
+              TemplateState templateState = TemplateManagerImpl.getTemplateState(editor);
+              var document = editor.getDocument();
+              if (templateState != null) {
+                handleSnippetsInsert(snippetBoundsRef, copyToInsert, templateState, document);
+              } else {
+                WriteCommandAction.runWriteCommandAction(project, null, null, () -> document.insertString(caretOffset, "$0"), copyToInsert);
+              }
+            } catch (IndexNotReadyException e) {
+              LOG.warn("Indexes not ready in invokeAndWait", e);
+            } catch (PluginException e) {
+              LOG.warn("Plugin exception in invokeAndWait", e);
+            } catch (RuntimeException e) {
+              Throwable cause = e.getCause();
+              if (cause instanceof PluginException || cause instanceof IndexNotReadyException) {
+                LOG.warn("Wrapped exception in invokeAndWait", e);
+              } else {
+                throw e;
+              }
+            }
+          });
+        } catch (IndexNotReadyException e) {
+          LOG.warn("Indexes not ready during completion resolution", e);
+        } catch (PluginException e) {
+          LOG.warn("Plugin exception during completion resolution", e);
+        } catch (RuntimeException e) {
+          Throwable cause = e.getCause();
+          if (cause instanceof PluginException || cause instanceof IndexNotReadyException) {
+            LOG.warn("Wrapped exception during completion resolution", e);
           } else {
-            WriteCommandAction.runWriteCommandAction(project, null, null, () -> document.insertString(caretOffset, "$0"), copyToInsert);
+            throw e;
           }
-        });
+        }
     }, new LspProgressIndicator(cancelChecker));
   }
 

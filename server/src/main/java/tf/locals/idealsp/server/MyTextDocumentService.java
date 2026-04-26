@@ -304,4 +304,20 @@ public class MyTextDocumentService implements TextDocumentService {
             return CompletableFuture.completedFuture(List.of());
         }
     }
+
+    @Override
+    public CompletableFuture<WorkspaceEdit> rename(@NotNull RenameParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("rename() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(new WorkspaceEdit());
+            }
+            return new RenameCommand(params.getPosition(), params.getNewName())
+                .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+        } catch (Exception e) {
+            LOG.error("rename() failed", e);
+            return CompletableFuture.completedFuture(new WorkspaceEdit());
+        }
+    }
 }
