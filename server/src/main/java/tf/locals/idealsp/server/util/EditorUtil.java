@@ -2,12 +2,14 @@ package tf.locals.idealsp.server.util;
 
 import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import org.eclipse.lsp4j.Position;
@@ -33,7 +35,12 @@ public class EditorUtil {
     assert doc != null;
     Editor created;
     try {
-      created = editorFactory.createEditor(doc, file.getProject());
+      // Use invokeAndWait outside write action to avoid IntelliJ 2026.1 modal progress issue
+      Ref<Editor> editorRef = new Ref<>();
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        editorRef.set(editorFactory.createEditor(doc, file.getProject()));
+      });
+      created = editorRef.get();
     } catch (Exception e) {
       LOG.warn("editorFactory.createEditor threw " + e.getClass().getName() 
           + " for file=" + file.getName() + " - releasing any leaked editor");
@@ -47,7 +54,11 @@ public class EditorUtil {
       }
       throw e;
     }
-    created.getCaretModel().moveToLogicalPosition(new LogicalPosition(position.getLine(), position.getCharacter()));
+    final int line = position.getLine();
+    final int character = position.getCharacter();
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      created.getCaretModel().moveToLogicalPosition(new LogicalPosition(line, character));
+    });
 
     Disposer.register(context, () -> {
       if (!created.isDisposed()) {

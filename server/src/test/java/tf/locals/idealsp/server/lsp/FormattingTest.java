@@ -22,12 +22,13 @@ public class FormattingTest extends LspServerTestBase {
 
   @Test
   public void wholeFileFormatting() {
+    // Main.java: "class Main {\nint x = 10;\nint y = 20;\n}\n"
+    // Java formatter adds 4-space indent to un-indented members
     final var expected = Set.of(
-        TestUtil.newTextEdit(1, 2, 1, 2, "  "),
-        TestUtil.newTextEdit(2, 0, 2, 0, "\n\n"),
-        TestUtil.newTextEdit(3, 2, 3, 2, "  ")
+        TestUtil.newTextEdit(1, 0, 1, 0, "    "),
+        TestUtil.newTextEdit(2, 0, 2, 0, "    ")
     );
-    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("main.py"));
+    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("Main.java"));
 
     var params = new DocumentFormattingParams();
     params.setTextDocument(TestUtil.getDocumentIdentifier(filePath));
@@ -38,11 +39,13 @@ public class FormattingTest extends LspServerTestBase {
 
   @Test
   public void rangeFormatting() {
+    // Range (0,0)-(2,0) covers lines 0-1; Java formatter expands to enclosing block,
+    // so both member lines are formatted
     final var expected = Set.of(
-        TestUtil.newTextEdit(1, 2, 1, 2, "  "),
-        TestUtil.newTextEdit(2, 0, 2, 0, "\n\n")
+        TestUtil.newTextEdit(1, 0, 1, 0, "    "),
+        TestUtil.newTextEdit(2, 0, 2, 0, "    ")
     );
-    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("main.py"));
+    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("Main.java"));
 
     var params = new DocumentRangeFormattingParams();
     params.setTextDocument(TestUtil.getDocumentIdentifier(filePath));
@@ -54,16 +57,21 @@ public class FormattingTest extends LspServerTestBase {
 
   @Test
   public void onTypeFormatting() {
+    // Util.java: "class Util {\nint x=   10           ;\n}\n"
+    // Typing "}" at (2,1) triggers reformatting of the class body
     final var expected = Set.of(
-        TestUtil.newTextEdit(0, 10, 0, 11, "")
+        TestUtil.newTextEdit(1, 0, 1, 0, "    "),
+        TestUtil.newTextEdit(1, 5, 1, 5, " "),
+        TestUtil.newTextEdit(1, 7, 1, 9, ""),
+        TestUtil.newTextEdit(1, 11, 1, 22, "")
     );
-    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("util.py"));
+    final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("Util.java"));
 
     var params = new DocumentOnTypeFormattingParams();
     params.setTextDocument(TestUtil.getDocumentIdentifier(filePath));
     params.setOptions(FormattingTestUtil.defaultOptions());
-    params.setCh(":");
-    params.setPosition(new Position(0, 10));
+    params.setCh("}");
+    params.setPosition(new Position(2, 1));
 
     checkFormattingResult(expected, server().getTextDocumentService().onTypeFormatting(params));
   }

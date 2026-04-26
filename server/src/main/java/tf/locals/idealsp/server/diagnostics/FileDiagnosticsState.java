@@ -21,7 +21,11 @@ final class FileDiagnosticsState {
     // to initiate ProcessCancelledException in a running highlighting
     DaemonCodeAnalyzer.getInstance(file.getProject()).restart(file);
 
-    task.cancel(true);
+    // cancel(false): do not interrupt a running task via thread interrupt flag.
+    // cancel(true) causes InterruptedException inside DumbService.runReadActionInSmartMode
+    // (via runBlockingWithParallelismCompensation) when the task is mid-highlighting,
+    // which results in 0 diagnostics being published instead of the correct set.
+    task.cancel(false);
   }
 
   public @NotNull QuickFixRegistry getQuickFixes() {
