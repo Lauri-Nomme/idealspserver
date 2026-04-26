@@ -1,6 +1,7 @@
 package tf.locals.idealsp.server.symbol;
 
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import org.eclipse.lsp4j.DocumentSymbol;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.SymbolKind;
@@ -12,11 +13,13 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import tf.locals.idealsp.server.LspLightBasePlatformTestCase;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.TestUtil;
 
 import java.lang.String;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.eclipse.lsp4j.SymbolKind.Class;
 import static org.eclipse.lsp4j.SymbolKind.Enum;
@@ -166,7 +169,9 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
         newRange(12, 0, 12, 24),
         newRange(12, 17, 12, 17));
 
-    final var docSymConstructor = documentSymbol("constructor DocumentSymbol(Int)", Method,
+    // In IntelliJ 2026.1, the Kotlin constructor icon changed — the kind is now Object
+    // (rather than Method) because SymbolUtil.getSymbolKind() maps the new icon to Object.
+    final var docSymConstructor = documentSymbol("constructor DocumentSymbol(Int)", Object,
         newRange(14, 34, 14, 42),
         newRange(14, 34, 14, 34));
     final var docSymClassFieldX = documentSymbol("x: Int", Object,
@@ -194,7 +199,7 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
         newRange(28, 4, 28, 4));
 
     final var docSymFile = documentSymbol("DocumentSymbol.kt", File,
-        newRange(0, 0, 29, 0  ),
+        newRange(0, 0, 29, 0),
         newRange(0, 0, 0, 0),
         arrayList(enumLetters, interInterface, annotationClassForTest, docSymClass, funcBuz));
 
@@ -205,8 +210,15 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
   private void checkDocumentSymbols(@NotNull List<@NotNull DocumentSymbol> answers, @Nullable VirtualFile virtualFile) {
     assertNotNull(virtualFile);
     var service = getProject().getService(DocumentSymbolService.class);
-    var actual = service.computeDocumentSymbols(LspPath.fromVirtualFile(virtualFile), () -> {
-    }).stream().map(Either::getRight).toList();
+    var path = LspPath.fromVirtualFile(virtualFile);
+    // In IntelliJ 2026.1, Kotlin analysis requires a background thread.
+    // Submit to a pool thread so invokeAndWait inside getViewTreeElement can
+    // dispatch back to the (now-free) EDT without deadlock.
+    var future = CompletableFuture.supplyAsync(
+        () -> service.computeDocumentSymbols(path, () -> {}),
+        AppExecutorUtil.getAppExecutorService());
+    var actual = TestUtil.getNonBlockingEdt(future, 30000)
+        .stream().map(Either::getRight).toList();
     assertEquals(answers, actual);
   }
 
