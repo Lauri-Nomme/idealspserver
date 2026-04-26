@@ -3,6 +3,7 @@ package tf.locals.idealsp.server.symbol;
 import com.intellij.ide.structureView.*;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.components.Service;
@@ -15,7 +16,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import org.eclipse.lsp4j.DocumentSymbol;
@@ -83,9 +83,12 @@ final public class DocumentSymbolService {
   private StructureViewTreeElement getViewTreeElement(@NotNull PsiFile psiFile,
                                                       @NotNull Disposable parentDisposable) {
 
-    FileEditor fileEditor = WriteCommandAction.runWriteCommandAction(project,
-        (ThrowableComputable<FileEditor, RuntimeException>)
-            () -> TextEditorProvider.getInstance().createEditor(project, psiFile.getVirtualFile()));
+    // Use invokeAndWait to avoid write lock issue in IntelliJ 2026.1 tests
+    FileEditor[] fileEditorHolder = new FileEditor[1];
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      fileEditorHolder[0] = TextEditorProvider.getInstance().createEditor(project, psiFile.getVirtualFile());
+    });
+    FileEditor fileEditor = fileEditorHolder[0];
     if (fileEditor == null) {
       LOG.warn("Cannot create editor for file: " + psiFile.getVirtualFile().getPath());
       return null;
@@ -110,7 +113,7 @@ final public class DocumentSymbolService {
                                      @NotNull PsiFile psiFile,
                                      @NotNull Document document) {
 
-    var documentSymbol = ReadAction.compute(() -> {
+    DocumentSymbol documentSymbol = ReadAction.compute(() -> {
       var curSymbol = new DocumentSymbol();
       curSymbol.setKind(SymbolUtil.getSymbolKind(root.getPresentation()));
       if (root instanceof StructureViewTreeElement viewElement) {
