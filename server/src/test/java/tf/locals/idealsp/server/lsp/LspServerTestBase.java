@@ -1,5 +1,6 @@
 package tf.locals.idealsp.server.lsp;
 
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.testFramework.HeavyPlatformTestCase;
 import org.eclipse.lsp4j.ClientCapabilities;
@@ -78,6 +79,13 @@ public abstract class LspServerTestBase extends HeavyPlatformTestCase {
     final var initializeParams = new InitializeParams();
     setupInitializeParams(initializeParams);
     TestUtil.getNonBlockingEdt(server.initialize(initializeParams), 30000);
+    // Wait for stable smart mode: IntelliJ may cycle through dumb/smart multiple times
+    // (initial dumb mode → smart → scanning → dumb mode for indexing → final smart mode).
+    // We wait until smart mode has been stable for 300ms to ensure all indexing is done.
+    var project = server().getProject();
+    if (project != null) {
+      TestUtil.waitForStableSmartMode(project, 60000, 300);
+    }
   }
 
   @Before

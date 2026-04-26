@@ -424,7 +424,10 @@ final public class CompletionService implements Disposable {
             lookupElementsWithMatcherRef.get(), document, position, completionDataVersionRef.get()));
       });
     } finally {
-      WriteCommandAction.runWriteCommandAction(project, () -> Disposer.dispose(process));
+      // Use invokeAndWait (not WriteCommandAction) to release the editor on EDT without
+      // triggering document commit. WriteCommandAction commits all documents, which re-parses
+      // PSI files and invalidates LookupElement PSI references cached for resolveCompletionItem.
+      ApplicationManager.getApplication().invokeAndWait(() -> Disposer.dispose(process));
     }
     return resultRef.get();
   }

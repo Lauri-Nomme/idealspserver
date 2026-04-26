@@ -3,14 +3,12 @@ package tf.locals.idealsp.server.lsp;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.util.Ref;
-import org.apache.commons.lang3.tuple.Pair;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.CompletionItemKind;
 import org.eclipse.lsp4j.CompletionList;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import tf.locals.idealsp.server.TestUtil;
@@ -21,10 +19,9 @@ import tf.locals.idealsp.server.generator.IdeaOffsetPositionConverter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.Assert.*;
-
-import java.util.stream.Stream;
 
 public class CompletionTest extends LspServerTestWithEngineBase {
 
@@ -33,15 +30,65 @@ public class CompletionTest extends LspServerTestWithEngineBase {
     return "completion/integration-test";
   }
 
-@Test
+  @Test
   public void completion() {
-    // IntelliJ 2026.1 has complex PSI invalidation issues in test environment
-    // The LSP server functionality is verified by the Python comprehensive tests
-    // This test is disabled in 2026.1 due to deep API changes around PSI element access
-    Assume.assumeFalse("Skipping completion test on IntelliJ 2026.1 due to PSI element access changes",
-        System.getProperty("idea.version", "").startsWith("2026"));
-    
-    // ... original test code ...
+    final String label = "completionVariant";
+
+    final Set<CompletionItem> expectedCompletionList = Set.of(
+        CompletionServiceTestUtil.createCompletionItem(
+            label,
+            "()",
+            "int",
+            new ArrayList<>(),
+            label,
+            CompletionItemKind.Method
+        ),
+        CompletionServiceTestUtil.createCompletionItem(
+            label,
+            "(int x)",
+            "void",
+            new ArrayList<>(),
+            label,
+            CompletionItemKind.Method)
+    );
+    CompletionTestGenerator.CompletionTest test;
+
+    assertNotNull(server().getProject());
+    CompletionTestGenerator generator = new CompletionTestGenerator(getEngine(), new IdeaOffsetPositionConverter(server().getProject()));
+    test = generator.generateTests().get(0);
+
+    var params = test.params();
+    Ref<Either<List<CompletionItem>, CompletionList>> completionResRef = new Ref<>();
+
+    Assertions.assertDoesNotThrow(() -> completionResRef.set(
+        TestUtil.getNonBlockingEdt(server().getTextDocumentService().completion(params), 3000)));
+    var completionItemList = extractItemList(completionResRef.get());
+
+    var itemForResolve = completionItemList
+        .stream()
+        .filter(completionItem ->
+            completionItem.getLabelDetails().getDetail().equals("()"))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("item wasn't found"));
+    var gson = new GsonBuilder().create();
+    itemForResolve.setData(gson.fromJson(gson.toJson(itemForResolve.getData()), JsonObject.class));
+    var resolvedItem = TestUtil.getNonBlockingEdt(
+        server()
+            .getTextDocumentService()
+            .resolveCompletionItem(
+                itemForResolve
+            ),
+        3000);
+    String originalText = test.getSourceText();
+    var allEdits = new ArrayList<>(resolvedItem.getAdditionalTextEdits());
+    allEdits.add(resolvedItem.getTextEdit().getLeft());
+
+    var insertedText = TestUtil.applyEdits(originalText, allEdits);
+    var expectedText = test.expected();
+    assertNotNull(expectedText);
+    Assertions.assertEquals(expectedText, insertedText);
+    completionItemList.forEach(CompletionServiceTestUtil::removeResolveInfo);
+    Assert.assertEquals(expectedCompletionList, new HashSet<>(completionItemList));
   }
 
   @NotNull
