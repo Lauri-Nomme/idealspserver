@@ -134,7 +134,7 @@ def test_all():
     send_notification(sock, "initialized", {})
 
     # Open file
-    test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
     with open(test_file) as f:
         text = f.read()
 
@@ -330,7 +330,7 @@ def test_all():
         print(f"11. Document highlight: FAILED (error={err})")
 
     # Test diagnostics on existing file - use LspServer.java which we know exists
-    error_test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    error_test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
 
     # Send didChange to introduce an error - change an int to String
     send_notification(
@@ -370,7 +370,7 @@ def test_all():
     drain_notifications(sock, seconds=8)
 
     # Test code actions - organize imports on a clean file (no error needed)
-    org_test_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    org_test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
     with open(org_test_file) as f:
         org_text = f.read()
 
@@ -575,8 +575,8 @@ def test_all():
 
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
-    bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/org/rri/ideals/server/bootstrap"
-    lsp_server_file = f"{PROJECT_PATH}/org/rri/ideals/server/LspServer.java"
+    bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/tf/locals/idealsp/server/bootstrap"
+    lsp_server_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
     lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
 
     # Open LspServerRunnerBase.java which references LspServer
