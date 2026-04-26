@@ -88,6 +88,12 @@ class DiagnosticsTask implements Runnable {
 
   @Override
   public void run() {
+    // Clear any lingering interrupt flag: a previous DiagnosticsTask on this pooled thread
+    // may have been cancelled via ScheduledFuture.cancel(true), which sets the interrupt flag.
+    // In IntelliJ 2026.1, runMainPasses checks the interrupt flag and throws InterruptedException
+    // if it is set, producing zero diagnostics for the successor task.
+    Thread.interrupted();
+
     String token = toString();
 
     var client = LspContext.getContext(file.getProject()).getClient();
