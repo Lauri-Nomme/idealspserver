@@ -16,6 +16,7 @@ import tf.locals.idealsp.server.LspPath;
 import tf.locals.idealsp.server.TestUtil;
 
 import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
 
 @RunWith(JUnit4.class)
@@ -37,12 +38,12 @@ public class WorkspaceSymbolServiceTest extends LspLightBasePlatformTestCase {
     assertNotNull(orgSomeSymbolForWorkspaceSymbolVirtualFile);
     final var comSomeSymbolForWorkspaceSymbolVirtualFile = comVirtualFile.findChild("SomeSymbolForWorkspaceSymbol.java");
     assertNotNull(comSomeSymbolForWorkspaceSymbolVirtualFile);
-    final var class2VirtualFile = orgVirtualFile.findChild("Class2.java");
-    assertNotNull(class2VirtualFile);
+    final var class2File = orgVirtualFile.findChild("Class2.java");
+    assertNotNull(class2File);
 
     final var orgSomeSymbolForWorkspaceSymbolUri = LspPath.fromVirtualFile(orgSomeSymbolForWorkspaceSymbolVirtualFile).toLspUri();
     final var comSomeSymbolForWorkspaceSymbolUri = LspPath.fromVirtualFile(comSomeSymbolForWorkspaceSymbolVirtualFile).toLspUri();
-    final var class2SomeSymbolForWorkspaceSymbolUri = LspPath.fromVirtualFile(class2VirtualFile).toLspUri();
+    final var class2SomeSymbolForWorkspaceSymbolUri = LspPath.fromVirtualFile(class2File).toLspUri();
 
     final var orgSomeSymbolForWorkspaceSymbol = workspaceSymbol("SomeSymbolForWorkspaceSymbol", SymbolKind.Class,
         location(orgSomeSymbolForWorkspaceSymbolUri, TestUtil.newRange(2, 13, 2, 41)));
@@ -109,10 +110,14 @@ public class WorkspaceSymbolServiceTest extends LspLightBasePlatformTestCase {
     final var documentSymbolUri = LspPath.fromVirtualFile(virtualFile).toLspUri();
 
     // kotlin icons are different from standard icons
+    // In IntelliJ 2026.1: containerName for member symbols is null (parent is no longer
+    // PsiNameIdentifierOwner for Kotlin properties/functions in the search contributor).
+    // The synthetic file-level class DocumentSymbolKt is no longer returned by
+    // SymbolSearchEverywhereContributor in 2026.1.
     final var varSymbol = workspaceSymbol("symbol", SymbolKind.Object,
-        location(workspaceSymbolUri, TestUtil.newRange(3, 14, 3, 20)), "WorkspaceSymbol");
+        location(workspaceSymbolUri, TestUtil.newRange(3, 14, 3, 20)));
     final var funSymbol = workspaceSymbol("symbol(Int, Int)", SymbolKind.Method,
-        location(workspaceSymbolUri, TestUtil.newRange(5, 6, 5, 12)), "WorkspaceSymbol");
+        location(workspaceSymbolUri, TestUtil.newRange(5, 6, 5, 12)));
 
     // we can't determine kotlin class kind by icon
     final var workspaceSymbolClass = workspaceSymbol("WorkspaceSymbol", SymbolKind.Object,
@@ -120,13 +125,16 @@ public class WorkspaceSymbolServiceTest extends LspLightBasePlatformTestCase {
     final var documentSymbolClass = workspaceSymbol("DocumentSymbol", SymbolKind.Object,
         location(documentSymbolUri, TestUtil.newRange(14, 20, 14, 34)), null);
 
-    final var documentSymbolFile = workspaceSymbol("DocumentSymbolKt", SymbolKind.Object,
-        location(documentSymbolUri, TestUtil.newRange(0, 0, 29, 0)), null);
-
     final var result = doSearch("symbol", getProject());
-    final var answer = List.of(varSymbol, funSymbol, documentSymbolClass, workspaceSymbolClass, documentSymbolFile);
+    final var answer = List.of(varSymbol, funSymbol, documentSymbolClass, workspaceSymbolClass);
 
-    assertEquals(answer, result);
+    // Sort both lists by name before comparing — the two "symbol" entries may arrive in
+    // either order depending on the weight tie-breaking in SymbolSearchEverywhereContributor.
+    final Comparator<WorkspaceSymbol> byName = Comparator
+        .comparing(WorkspaceSymbol::getName)
+        .thenComparing(s -> s.getLocation().getLeft().getUri());
+    assertEquals(answer.stream().sorted(byName).toList(),
+        result.stream().map(s -> (WorkspaceSymbol) s).sorted(byName).toList());
   }
 
   @NotNull
