@@ -110,6 +110,7 @@ This changes O(hours) of manual searching into seconds of precise operations.
 | Document Highlight | ✅ Working | 7+ highlights |
 | Rename | ✅ Working | OK |
 | Signature Help | ✅ Working | OK |
+| Call Hierarchy | ✅ Working | incoming/outgoing calls found |
 
 ### AI Agent Tools - Status
 
