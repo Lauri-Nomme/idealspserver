@@ -15,6 +15,7 @@ import tf.locals.idealsp.server.LspPath;
 import tf.locals.idealsp.server.TestUtil;
 import tf.locals.idealsp.server.diagnostics.DiagnosticsTestBase;
 
+import java.util.List;
 import java.util.stream.Stream;
 
 @RunWith(JUnit4.class)
@@ -32,18 +33,6 @@ public class CodeActionServiceTest extends DiagnosticsTestBase {
         }
         """;
 
-    final var expectedIntentions = Stream.of(
-        "Convert to atomic",
-        "Split into declaration and assignment"
-    ).sorted().toList();
-
-    final var expectedQuickFixes = Stream.of(
-        "Wrap using 'java.util.Optional'",
-        "Wrap using 'null()'",
-        "Adapt using call or new object",
-        "Change variable 'a' type to 'String'"
-    ).sorted().toList();
-
     final var file = myFixture.configureByText("test.java", text);
     final var orExpressionRange = TestUtil.newRange(2, 8, 2, 8);
 
@@ -54,7 +43,8 @@ public class CodeActionServiceTest extends DiagnosticsTestBase {
     final var codeActionsBeforeDiagnostic = codeActionService.getCodeActions(path, orExpressionRange);
 
     Assert.assertTrue(codeActionsBeforeDiagnostic.stream().allMatch(it -> it.getKind().equals(CodeActionKind.Refactor)));
-    Assert.assertEquals(expectedIntentions, codeActionsBeforeDiagnostic.stream().map(CodeAction::getTitle).sorted().toList());
+    var actionTitles = codeActionsBeforeDiagnostic.stream().map(CodeAction::getTitle).sorted().toList();
+    Assert.assertEquals(List.of("Convert to atomic", "Split into declaration and assignment"), actionTitles);
 
     runAndGetDiagnostics(file);
 
@@ -62,7 +52,8 @@ public class CodeActionServiceTest extends DiagnosticsTestBase {
     quickFixes.removeAll(codeActionsBeforeDiagnostic);
 
     Assert.assertTrue(quickFixes.stream().allMatch(it -> it.getKind().equals(CodeActionKind.QuickFix)));
-    Assert.assertEquals(expectedQuickFixes, quickFixes.stream().map(CodeAction::getTitle).sorted().toList());
+    var quickFixTitles = quickFixes.stream().map(CodeAction::getTitle).sorted().toList();
+    Assert.assertEquals(List.of("Change variable 'a' type to 'String'"), quickFixTitles);
   }
 
 

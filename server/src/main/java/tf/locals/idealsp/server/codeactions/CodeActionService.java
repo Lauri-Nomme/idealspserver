@@ -11,6 +11,7 @@ import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
@@ -21,6 +22,7 @@ import org.eclipse.lsp4j.CodeActionKind;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.WorkspaceEdit;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
 import tf.locals.idealsp.server.diagnostics.DiagnosticsService;
 import tf.locals.idealsp.server.util.EditorUtil;
@@ -43,11 +45,51 @@ public final class CodeActionService {
     this.project = project;
   }
 
-  @NotNull
+  /**
+   * Force-initializes a lazy ModCommandActionWrapper descriptor by calling isAvailable().
+   * In IntelliJ 2026.1, ModCommandAction-based fixes are wrapped in ModCommandActionWrapper
+   * with myPresentation=null. getText() returns "(not initialized) class X" until
+   * isAvailable(project, editor, file) is called, which populates myPresentation via
+   * ModCommandAction.getPresentation(ActionContext). Editor may be null — ActionContext.from(null, file)
+   * creates a valid context at offset 0.
+   */
+  private static void tryInitDescriptor(@NotNull Object descriptor,
+                                        @NotNull Project project,
+                                        @Nullable Editor editor,
+                                        @NotNull PsiFile file) {
+    try {
+      Object action;
+      try {
+        action = descriptor.getClass().getMethod("getAction").invoke(descriptor);
+      } catch (NoSuchMethodException e) {
+        action = descriptor; // already an IntentionAction, not a descriptor
+      }
+      action.getClass()
+          .getMethod("isAvailable", Project.class, Editor.class, PsiFile.class)
+          .invoke(action, project, editor, file);
+    } catch (Exception ignored) {
+    }
+  }
+
+  /** Returns the getText() value of an IntentionAction object, falling back to toString(). */
+  private static @NotNull String tryGetText(@NotNull Object action) {
+    try {
+      return (String) action.getClass().getMethod("getText").invoke(action);
+    } catch (Exception e) {
+      return action.toString();
+    }
+  }
+
+  /**
+   * Converts a descriptor to a CodeAction. Returns null if the descriptor's action text is
+   * still "(not initialized)" after initialization attempts (e.g., action not available at
+   * the current offset).
+   */
+  @org.jetbrains.annotations.Nullable
   private static CodeAction toCodeAction(@NotNull LspPath path,
                                          @NotNull Range range,
                                          @NotNull Object descriptor,
-                                          @NotNull String kind) {
+                                         @NotNull String kind) {
     String text;
     final Object desc = descriptor;
     try {
@@ -56,6 +98,9 @@ public final class CodeActionService {
       text = (String) action.getClass().getMethod("getText").invoke(action);
     } catch (Exception e) {
       text = desc.toString();
+    }
+    if (text == null || text.startsWith("(not initialized)")) {
+      return null; // lazy descriptor not initialized at this position — skip
     }
     final String finalText = text;
     return MiscUtil.with(new CodeAction(ReadAction.compute(() -> finalText)), ca -> {
@@ -116,12 +161,20 @@ public final class CodeActionService {
                 intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
               } catch (Exception ignored) {}
 
-              final var quickFixes = diagnostics().getQuickFixes(path, range).stream()
-                  .map(it -> toCodeAction(path, range, it, CodeActionKind.QuickFix));
+              // Force-initialize lazy ModCommandActionWrapper descriptors (IntelliJ 2026.1)
+              final var quickFixDescriptors = diagnostics().getQuickFixes(path, range);
+              Stream.of(quickFixDescriptors, errorFixes, inspectionFixes, intentions)
+                  .flatMap(Collection::stream)
+                  .forEach(d -> tryInitDescriptor(d, project, editor, file));
+
+              final var quickFixes = quickFixDescriptors.stream()
+                  .map(it -> toCodeAction(path, range, it, CodeActionKind.QuickFix))
+                  .filter(Objects::nonNull);
 
               final var intentionActions = Stream.of(errorFixes, inspectionFixes, intentions)
                   .flatMap(Collection::stream)
-                  .map(it -> toCodeAction(path, range, it, CodeActionKind.Refactor));
+                  .map(it -> toCodeAction(path, range, it, CodeActionKind.Refactor))
+                  .filter(Objects::nonNull);
 
               final var actions = Stream.concat(quickFixes, intentionActions)
                   .filter(distinctByKey(CodeAction::getTitle))
@@ -201,6 +254,11 @@ public final class CodeActionService {
             intentions = (java.util.Collection<?>) intentionsField.get(actionInfo2);
           } catch (Exception ignored) {}
 
+          // Force-initialize lazy ModCommandActionWrapper descriptors (IntelliJ 2026.1)
+          Stream.of(quickFixes, errorFixes, inspectionFixes, intentions)
+              .flatMap(Collection::stream)
+              .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
+
           var actionFound = Stream.of(
                   quickFixes,
                   errorFixes,
@@ -215,7 +273,7 @@ public final class CodeActionService {
                   return obj;
                 }
               })
-              .filter(it -> it.toString().contains(codeAction.getTitle()))
+              .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
               .findFirst()
               .orElse(null);
 

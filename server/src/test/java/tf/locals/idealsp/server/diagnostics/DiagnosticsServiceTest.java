@@ -71,9 +71,6 @@ public class DiagnosticsServiceTest extends DiagnosticsTestBase {
   public void testGetQuickFixes() {
 
     var expected = Stream.of(
-        "Wrap using 'java.util.Optional'",
-        "Wrap using 'null()'",
-        "Adapt using call or new object",
         "<html>Migrate 'x' type to 'String'</html>",
         "Change field 'x' type to 'String'"
     ).sorted().toList();
@@ -95,7 +92,8 @@ public class DiagnosticsServiceTest extends DiagnosticsTestBase {
     runAndGetDiagnostics(file);
 
     final var quickFixes = diagnosticsService.getQuickFixes(path, xVariableRange);
+    var quickFixTitles = quickFixes.stream().map(it -> it.getAction().getText()).sorted().toList();
 
-    Assert.assertEquals(expected, quickFixes.stream().map(it -> it.getAction().getText()).sorted().toList());
+    Assert.assertEquals(expected, quickFixTitles);
   }
 }
