@@ -49,6 +49,17 @@ final public class DiagnosticsService {
     Optional.ofNullable(states.remove(path)).ifPresent(FileDiagnosticsState::halt);
   }
 
+  /**
+   * Halts and removes all tracked diagnostic states.
+   * Intended for test teardown to prevent cross-test state pollution
+   * when different tests share the same virtual file paths (e.g. temp:///src/test.java).
+   */
+  public void resetForTesting() {
+    var snapshot = List.copyOf(states.values());
+    states.clear();
+    snapshot.forEach(FileDiagnosticsState::halt);
+  }
+
   @NotNull
   public List<HighlightInfo.IntentionActionDescriptor> getQuickFixes(@NotNull LspPath path, @NotNull Range range) {
     return Optional.ofNullable(states.get(path))

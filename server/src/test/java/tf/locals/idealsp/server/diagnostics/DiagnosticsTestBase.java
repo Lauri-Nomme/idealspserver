@@ -13,6 +13,11 @@ import tf.locals.idealsp.server.mocks.MockLanguageClient;
 public abstract class DiagnosticsTestBase extends LspLightBasePlatformTestCase {
   @Before
   public void setupContext() {
+    // Reset DiagnosticsService state before each test to prevent cross-test contamination.
+    // Multiple test classes share the same temp VFS paths (e.g. temp:///src/test.java),
+    // so stale diagnostic state from a previous test class must be cleared.
+    getProject().getService(DiagnosticsService.class).resetForTesting();
+
     LspContext.createContext(getProject(),
         new MockLanguageClient(),
         new ClientCapabilities()
