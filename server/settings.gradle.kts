@@ -1,4 +1,4 @@
-rootProject.name = "server"
+rootProject.name = "idealsp"
 
 // Suppress debug println spam from IntelliJ Platform Gradle Plugin 2.14.0
 // (moduleDescriptorCoordinates prints all module coordinates to stdout)

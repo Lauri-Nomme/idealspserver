@@ -1,4 +1,6 @@
-## IdeaLS LSP Server - IntelliJ 2026.1 Status
+## IdeaLSP - IntelliJ LSP Server
+
+Based on [IdeaLS](https://github.com/SuduIDE/ideals) by the original authors.
 
 ### Current Status (April 2026)
 The plugin builds and runs successfully on IntelliJ 2026.1. All core LSP features are working.

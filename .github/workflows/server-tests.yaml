@@ -60,10 +60,10 @@ jobs:
       - name: Start server in background
         run: |
           cd server
-          ./build/install/ideals/bin/ideals &
+          ./build/install/idealsp/bin/idealsp &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
-          echo "$SERVER_PID" > /tmp/ideals_server.pid
+          echo "$SERVER_PID" > /tmp/idealsp_server.pid
           sleep 15
           if ! kill -0 $SERVER_PID 2>/dev/null; then
             echo "Server failed to start"
@@ -75,7 +75,7 @@ jobs:
         working-directory: .
       - name: Stop server
         run: |
-          if [ -f /tmp/ideals_server.pid ]; then
-            kill $(cat /tmp/ideals_server.pid) 2>/dev/null || true
-            rm /tmp/ideals_server.pid
+          if [ -f /tmp/idealsp_server.pid ]; then
+            kill $(cat /tmp/idealsp_server.pid) 2>/dev/null || true
+            rm /tmp/idealsp_server.pid
           fi

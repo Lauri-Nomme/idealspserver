@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install IdeaLS plugin and restart LSP server
+# Install IdeaLSP plugin and restart LSP server
 
 set -e
 
@@ -15,12 +15,12 @@ gradle buildPlugin --no-daemon -q
 
 echo "Installing plugin..."
 rm -rf "$PLUGIN_PATH"/*
-unzip -o "$PLUGIN_DIR/build/distributions/server-1.0-SNAPSHOT.zip" -d /tmp/
-cp /tmp/server/lib/* "$PLUGIN_PATH/"
+unzip -o "$PLUGIN_DIR/build/distributions/idealsp-1.0-SNAPSHOT.zip" -d /tmp/
+cp /tmp/idealsp/lib/* "$PLUGIN_PATH/"
 
 echo "Restarting service..."
 systemctl --user daemon-reload
-systemctl --user restart ideals-lsp
+systemctl --user restart idealsp
 
 echo "Waiting for LSP server..."
 for i in {1..30}; do

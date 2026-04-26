@@ -21,20 +21,20 @@ The install script:
 
 ```bash
 # Restart the service
-systemctl --user restart ideals-lsp.service
+systemctl --user restart idealsp.service
 
 # Check status
-systemctl --user status ideals-lsp.service
+systemctl --user status idealsp.service
 ```
 
 ### Check Logs
 
 ```bash
 # View recent logs
-journalctl --user -u ideals-lsp.service -n 30 --no-pager
+journalctl --user -u idealsp.service -n 30 --no-pager
 
 # Follow logs in real-time
-journalctl --user -u ideals-lsp.service -f
+journalctl --user -u idealsp.service -f
 ```
 
 ## Run Comprehensive LSP Tests
@@ -44,7 +44,7 @@ journalctl --user -u ideals-lsp.service -f
 Ensure the LSP server is running:
 ```bash
 # Check if service is running
-systemctl --user status ideals-lsp.service
+systemctl --user status idealsp.service
 
 # Or check via netstat
 ss -tlnp | grep 8989
@@ -110,23 +110,23 @@ python3 scripts/test_lsp_comprehensive.py
 ### Check Service Status
 
 ```bash
-systemctl --user status ideals-lsp.service
+systemctl --user status idealsp.service
 ```
 
 ### Stop Service
 
 ```bash
-systemctl --user stop ideals-lsp.service
+systemctl --user stop idealsp.service
 ```
 
 ### Service Logs (filtered)
 
 ```bash
 # Show only errors
-journalctl --user -u ideals-lsp.service --no-pager | grep -i error
+journalctl --user -u idealsp.service --no-pager | grep -i error
 
 # Show warnings
-journalctl --user -u ideals-lsp.service --no-pager | grep -i warn
+journalctl --user -u idealsp.service --no-pager | grep -i warn
 ```
 
 ### Test Without Rebuild
@@ -134,7 +134,7 @@ journalctl --user -u ideals-lsp.service --no-pager | grep -i warn
 If you only need to restart the service (no code changes):
 
 ```bash
-systemctl --user restart ideals-lsp.service
+systemctl --user restart idealsp.service
 sleep 5
 python3 scripts/test_lsp_comprehensive.py
 ```
@@ -145,7 +145,7 @@ python3 scripts/test_lsp_comprehensive.py
 
 ```bash
 # Check for errors
-journalctl --user -u ideals-lsp.service -n 50 --no-pager
+journalctl --user -u idealsp.service -n 50 --no-pager
 ```
 
 ### Port Already in Use
@@ -155,7 +155,7 @@ journalctl --user -u ideals-lsp.service -n 50 --no-pager
 fuser -k 8989/tcp
 
 # Restart service
-systemctl --user restart ideals-lsp.service
+systemctl --user restart idealsp.service
 ```
 
 ### Build Failures
@@ -188,8 +188,8 @@ cd /vokk/home/lauri/dev/idealspserver/git/server
 ./gradlew test --no-daemon
 
 # Run specific test class
-./gradlew test --tests "org.rri.ideals.server.lsp.ReferencesTest" --no-daemon
+./gradlew test --tests "tf.locals.idealsp.server.lsp.ReferencesTest" --no-daemon
 
 # Run specific test method
-./gradlew test --tests "org.rri.ideals.server.lsp.ReferencesTest.testReferences" --no-daemon
+./gradlew test --tests "tf.locals.idealsp.server.lsp.ReferencesTest.testReferences" --no-daemon
 ```

@@ -5,8 +5,8 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.14.0"
 }
 
-group = "org.rri.ideals.server"
-version = System.getenv("IDEALS_VERSION") ?: "1.0-SNAPSHOT"
+group = "tf.locals.idealsp.server"
+version = System.getenv("IDEALSP_VERSION") ?: "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
