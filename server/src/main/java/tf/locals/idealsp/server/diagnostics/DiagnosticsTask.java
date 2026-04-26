@@ -50,7 +50,8 @@ class DiagnosticsTask implements Runnable {
   }
 
   @Nullable
-  private static Diagnostic toDiagnostic(@NotNull HighlightInfo info, @NotNull Document doc, @NotNull QuickFixRegistry registry) {
+  private static Diagnostic toDiagnostic(@NotNull HighlightInfo info, @NotNull Document doc,
+                                         @NotNull QuickFixRegistry registry, @NotNull PsiFile file) {
     if (info.getDescription() == null)
       return null;
 
@@ -60,7 +61,27 @@ class DiagnosticsTask implements Runnable {
       descriptors.add(intentionActionDescriptor);
       return null;
     });
-    registry.registerQuickFixes(range, descriptors);
+    // Force-initialize lazy ModCommandActionWrapper descriptors (IntelliJ 2026.1).
+    // ModCommandActionWrapper.getText() returns "(not initialized) class X" until
+    // isAvailable() is called, which populates myPresentation via getPresentation(ActionContext).
+    // Some actions (e.g. WrapExpressionFix) remain "(not initialized)" even after force-init
+    // because IntelliJ 2026.1 changed GenericsUtil.getVariableTypeByExpressionType to return
+    // null for primitive types, leaving myExpectedType=null in the fix and making getPresentation()
+    // always return null for those actions. Filter them out so the registry only stores usable fixes.
+    var project = file.getProject();
+    var validDescriptors = new ArrayList<HighlightInfo.IntentionActionDescriptor>();
+    for (var descriptor : descriptors) {
+      try {
+        var action = descriptor.getAction();
+        action.isAvailable(project, null, file);
+        if (!action.getText().startsWith("(not initialized)")) {
+          validDescriptors.add(descriptor);
+        }
+      } catch (Exception ignored) {
+        validDescriptors.add(descriptor); // keep on error — don't silently discard
+      }
+    }
+    registry.registerQuickFixes(range, validDescriptors);
 
     return new Diagnostic(range, info.getDescription(), diagnosticSeverity(info.getSeverity()), "ideals");
   }
@@ -86,7 +107,7 @@ class DiagnosticsTask implements Runnable {
       var highlights = getHighlights(file, document);
       var diags = ReadAction.compute(() ->
           highlights.stream()
-              .map(it -> toDiagnostic(it, document, session.getQuickFixRegistry()))
+              .map(it -> toDiagnostic(it, document, session.getQuickFixRegistry(), file))
               .filter(Objects::nonNull)
               .collect(Collectors.toList())
       );
