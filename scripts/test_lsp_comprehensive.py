@@ -416,6 +416,163 @@ def test_all():
     else:
         print(f"13. Code Actions (organize imports): Skipped")
 
+    # ============================================
+    # Call Hierarchy Tests (prepareCallHierarchy)
+    # ============================================
+    # Setup: Open the test-data file which has callers inside same file
+    # getName() is called by process() inside test-data
+    test_calls_file = "/vokk/home/lauri/dev/idealspserver/git/server/test-data/callhierarchy/TestCalls.java"
+    try:
+        with open(test_calls_file) as f:
+            test_calls_text = f.read()
+    except FileNotFoundError:
+        print("TEST_DATA_NOT_FOUND: test-data/callhierarchy/TestCalls.java")
+        test_calls_text = None
+
+    if test_calls_text:
+        send_notification(
+            sock,
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": f"file://{test_calls_file}",
+                    "languageId": "java",
+                    "version": 1,
+                    "text": test_calls_text,
+                }
+            },
+        )
+        drain_notifications(sock, seconds=5)
+
+        # Test 14: prepareCallHierarchy on getName() method (line 10, char 17)
+        resp = send_and_recv(
+            sock,
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{test_calls_file}"},
+                "position": {"line": 10, "character": 17},
+            },
+            14,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            if len(items) >= 1 and any(i.get("name") == "getName" for i in items):
+                print(f"14. PrepareCallHierarchy on getName(): OK - Got {[i.get('name') for i in items]}")
+            else:
+                print(f"14. PrepareCallHierarchy: FAILED - Expected 'getName', got {[i.get('name') for i in items]}")
+        else:
+            print(f"14. PrepareCallHierarchy: FAILED or no result - {resp}")
+
+        # Store for subsequent tests
+        getname_item = None
+        if resp and "result" in resp and resp["result"]:
+            getname_item = resp["result"][0]
+
+        # Test 15: incomingCalls to getName() - should find process() as caller
+        if getname_item:
+            resp = send_and_recv(
+                sock,
+                "callHierarchy/incomingCalls",
+                {"item": getname_item},
+                15,
+            )
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                incoming_names = sorted([c["from"]["name"] for c in calls])
+                expected = ["process"]
+                if all(name in incoming_names for name in expected):
+                    print(f"15. IncomingCalls to getName(): OK - Got {incoming_names}")
+                else:
+                    print(f"15. IncomingCalls: FAILED - Expected {expected}, got {incoming_names}")
+            else:
+                print(f"15. IncomingCalls: FAILED or no result - {resp}")
+
+        # Test 17: prepareCallHierarchy on process() method (line 17, char 17)
+        resp = send_and_recv(
+            sock,
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{test_calls_file}"},
+                "position": {"line": 17, "character": 17},
+            },
+            17,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            if len(items) == 1 and items[0]["name"] == "process":
+                print(f"17. PrepareCallHierarchy on process(): OK - Got '{items[0]['name']}'")
+            else:
+                print(f"17. PrepareCallHierarchy: FAILED - Expected 'process', got {[i.get('name') for i in items]}")
+        else:
+            print(f"17. PrepareCallHierarchy: FAILED or no result - {resp}")
+
+        process_item = None
+        if resp and "result" in resp and resp["result"]:
+            process_item = resp["result"][0]
+
+        # Test 18: outgoingCalls from process() - should find getName(), printName(), TestCalls constructor
+        if process_item:
+            resp = send_and_recv(
+                sock,
+                "callHierarchy/outgoingCalls",
+                {"item": process_item},
+                18,
+            )
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                outgoing_names = sorted([c["to"]["name"] for c in calls])
+                # Expect: getName, printName, and constructor (TestCalls)
+                if "getName" in outgoing_names and "printName" in outgoing_names:
+                    print(f"18. OutgoingCalls from process(): OK - Got {outgoing_names}")
+                else:
+                    print(f"18. OutgoingCalls: FAILED - Expected getName/printName, got {outgoing_names}")
+            else:
+                print(f"18. OutgoingCalls: FAILED or no result - {resp}")
+
+        # Test 19: incomingCalls to process() - should find main()
+        if process_item:
+            resp = send_and_recv(
+                sock,
+                "callHierarchy/incomingCalls",
+                {"item": process_item},
+                19,
+            )
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                incoming_names = sorted([c["from"]["name"] for c in calls])
+                if "main" in incoming_names:
+                    print(f"19. IncomingCalls to process(): OK - Got {incoming_names}")
+                else:
+                    print(f"19. IncomingCalls: FAILED - Expected 'main', got {incoming_names}")
+            else:
+                print(f"19. IncomingCalls: FAILED or no result - {resp}")
+
+        # Test 20: prepareCallHierarchy on non-callable (a field declaration) - should return null/empty
+        resp = send_and_recv(
+            sock,
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{test_calls_file}"},
+                "position": {"line": 4, "character": 20},  # 'name' field
+            },
+            20,
+        )
+        if resp and "result" in resp:
+            result = resp["result"]
+            if result is None or (isinstance(result, list) and len(result) == 0):
+                print(f"20. PrepareCallHierarchy on field: OK - Got expected null/empty")
+            else:
+                print(f"20. PrepareCallHierarchy on field: FAILED - Expected null/empty, got {result}")
+        else:
+            print(f"20. PrepareCallHierarchy on field: FAILED - {resp}")
+
+        # Cleanup: close test file
+        send_notification(
+            sock,
+            "textDocument/didClose",
+            {"textDocument": {"uri": f"file://{test_calls_file}"}},
+        )
+
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
     bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/org/rri/ideals/server/bootstrap"

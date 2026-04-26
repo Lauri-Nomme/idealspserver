@@ -8,6 +8,7 @@ import org.eclipse.lsp4j.jsonrpc.CompletableFutures;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.TextDocumentService;
 import org.jetbrains.annotations.NotNull;
+import org.rri.ideals.server.callhierarchy.*;
 import org.rri.ideals.server.codeactions.CodeActionService;
 import org.rri.ideals.server.completions.CompletionService;
 import org.rri.ideals.server.diagnostics.DiagnosticsService;
@@ -242,17 +243,65 @@ public class MyTextDocumentService implements TextDocumentService {
         .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
   }
 
-  @Override
-  public CompletableFuture<List<? extends TextEdit>> onTypeFormatting(DocumentOnTypeFormattingParams params) {
-    return new OnTypeFormattingCommand(params.getPosition(), params.getOptions(),
-        params.getCh().charAt(0)).runAsync(
-        session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri())
-    );
-  }
+    @Override
+    public CompletableFuture<List<? extends TextEdit>> onTypeFormatting(DocumentOnTypeFormattingParams params) {
+        return new OnTypeFormattingCommand(params.getPosition(), params.getOptions(),
+                params.getCh().charAt(0)).runAsync(
+                session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri())
+        );
+    }
 
-  @Override
-  public CompletableFuture<WorkspaceEdit> rename(RenameParams params) {
-    return new RenameCommand(params.getPosition(), params.getNewName())
-        .runAsync(session.getProject(), LspPath.fromLspUri(params.getTextDocument().getUri()));
-  }
+    @Override
+    public CompletableFuture<List<CallHierarchyItem>> prepareCallHierarchy(@NotNull CallHierarchyPrepareParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("prepareCallHierarchy() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return new PrepareCallHierarchyCommand(params.getPosition())
+                    .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+        } catch (Exception e) {
+            LOG.error("prepareCallHierarchy() failed", e);
+            return CompletableFuture.completedFuture(List.of());
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<CallHierarchyIncomingCall>> callHierarchyIncomingCalls(@NotNull CallHierarchyIncomingCallsParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("callHierarchyIncomingCalls() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return CompletableFuture.supplyAsync(() -> {
+                return com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction((com.intellij.openapi.util.Computable<List<CallHierarchyIncomingCall>>) () -> 
+                        new IncomingCallsCommand(params.getItem()).execute(project));
+            });
+        } catch (Exception e) {
+            LOG.error("callHierarchyIncomingCalls() failed", e);
+            return CompletableFuture.completedFuture(List.of());
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<CallHierarchyOutgoingCall>> callHierarchyOutgoingCalls(@NotNull CallHierarchyOutgoingCallsParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("callHierarchyOutgoingCalls() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return CompletableFuture.supplyAsync(() -> {
+                return com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction((com.intellij.openapi.util.Computable<List<CallHierarchyOutgoingCall>>) () -> 
+                        new OutgoingCallsCommand(params.getItem()).execute(project));
+            });
+        } catch (Exception e) {
+            LOG.error("callHierarchyOutgoingCalls() failed", e);
+            return CompletableFuture.completedFuture(List.of());
+        }
+    }
 }

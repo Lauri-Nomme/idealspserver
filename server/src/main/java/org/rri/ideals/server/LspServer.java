@@ -127,13 +127,16 @@ it.setHoverProvider(true);
 //      it.setDocumentLinkProvider(null);
 //      it.setExecuteCommandProvider(new ExecuteCommandOptions());
 
-      it.setCodeActionProvider(
-          MiscUtil.with(
-              new CodeActionOptions(List.of(CodeActionKind.QuickFix)),
-              cao -> cao.setResolveProvider(true)
-          )
-      );
-      it.setExperimental(null);
+       it.setCodeActionProvider(
+           MiscUtil.with(
+               new CodeActionOptions(List.of(CodeActionKind.QuickFix)),
+               cao -> cao.setResolveProvider(true)
+           )
+       );
+
+       it.setCallHierarchyProvider(true);
+
+       it.setExperimental(null);
 
     });
   }
