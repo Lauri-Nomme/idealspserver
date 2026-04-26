@@ -86,10 +86,11 @@ final public class WorkspaceSymbolService {
           contributorRef.set(contributor);
         }
     );
-    final var ref = new Ref<List<WorkspaceSearchResult>>();
-    ApplicationManager.getApplication().runReadAction(
-        () -> ref.set(search(contributorRef.get(), pattern.isEmpty() ? "*" : pattern, cancelToken)));
-    return ref.get();
+    // Do NOT wrap in runReadAction here: holding a read lock while blocking on
+    // executeOnPooledThread().get() inside search() prevents pending write actions from
+    // completing, which makes runInReadActionWithWriteActionPriority cancel the indicator
+    // immediately (isWriteActionRunningOrPending=true) → empty results.
+    return search(contributorRef.get(), pattern.isEmpty() ? "*" : pattern, cancelToken);
   }
 
   private record WorkspaceSearchResult(@NotNull WorkspaceSymbol symbol,
@@ -107,25 +108,34 @@ final public class WorkspaceSymbolService {
     final var projectSymbols = new ArrayList<WorkspaceSearchResult>(LIMIT);
     final var otherSymbols = new ArrayList<WorkspaceSearchResult>(LIMIT);
     final var scope = ProjectScope.getProjectScope(project);
-    try {
-      final var indicator = new WorkspaceSymbolIndicator(cancelToken);
-      final var elements = new HashSet<PsiElement>();
-      ApplicationManager.getApplication().executeOnPooledThread(() ->
-          contributor.fetchWeightedElements(pattern, indicator,
-              descriptor -> {
-                if (!(descriptor.getItem() instanceof final PsiElement elem)
-                    || elements.contains(elem)) {
-                  return true;
-                }
-                final var searchResult = toSearchResult(descriptor, scope);
-                if (searchResult == null) {
-                  return true;
-                }
-                elements.add(elem);
-                (searchResult.isProjectFile() ? projectSymbols : otherSymbols).add(searchResult);
-                return projectSymbols.size() + otherSymbols.size() < LIMIT;
-              })).get();
-    } catch (InterruptedException | ExecutionException ignored) {
+    // Retry when fetchWeightedElements is cancelled by a pending write action.
+    // A brief wait allows the write action to complete before the next attempt.
+    for (int attempt = 0; attempt < 5; attempt++) {
+      projectSymbols.clear();
+      otherSymbols.clear();
+      try {
+        final var indicator = new WorkspaceSymbolIndicator(cancelToken);
+        final var elements = new HashSet<PsiElement>();
+        ApplicationManager.getApplication().executeOnPooledThread(() ->
+            contributor.fetchWeightedElements(pattern, indicator,
+                descriptor -> {
+                  if (!(descriptor.getItem() instanceof final PsiElement elem)
+                      || elements.contains(elem)) {
+                    return true;
+                  }
+                  final var searchResult = toSearchResult(descriptor, scope);
+                  if (searchResult == null) {
+                    return true;
+                  }
+                  elements.add(elem);
+                  (searchResult.isProjectFile() ? projectSymbols : otherSymbols).add(searchResult);
+                  return projectSymbols.size() + otherSymbols.size() < LIMIT;
+                })).get();
+        if (!indicator.isCanceled()) break;
+        // Let the pending write action complete before retrying.
+        if (attempt < 4) Thread.sleep(200);
+      } catch (InterruptedException | ExecutionException ignored) {
+      }
     }
     projectSymbols.sort(COMP);
     otherSymbols.sort(COMP);
