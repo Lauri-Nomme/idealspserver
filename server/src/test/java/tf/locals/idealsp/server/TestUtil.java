@@ -1,6 +1,8 @@
 package tf.locals.idealsp.server;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -43,6 +45,26 @@ public class TestUtil {
       PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
       Thread.yield();
     }
+  }
+
+  /**
+   * Waits until the project has been in smart mode (non-dumb mode) continuously for
+   * at least {@code stableMs} milliseconds. This handles the multi-cycle pattern where
+   * IntelliJ briefly exits dumb mode, starts scanning, then enters dumb mode again for
+   * actual indexing, then exits dumb mode for the final time.
+   */
+  public static void waitForStableSmartMode(@NotNull Project project, long timeoutMs, long stableMs) {
+    final long[] lastSmartSince = { Long.MIN_VALUE };
+    waitInEdtFor(() -> {
+      if (DumbService.isDumb(project)) {
+        lastSmartSince[0] = Long.MIN_VALUE;
+        return false;
+      }
+      if (lastSmartSince[0] == Long.MIN_VALUE) {
+        lastSmartSince[0] = System.currentTimeMillis();
+      }
+      return System.currentTimeMillis() - lastSmartSince[0] >= stableMs;
+    }, timeoutMs);
   }
 
   @NotNull
