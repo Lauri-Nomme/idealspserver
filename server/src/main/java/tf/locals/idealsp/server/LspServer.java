@@ -13,18 +13,25 @@ import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageClientAware;
 import org.eclipse.lsp4j.services.LanguageServer;
+import org.eclipse.lsp4j.services.TextDocumentService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import tf.locals.idealsp.server.dataflow.DataFlowFromCommand;
+import tf.locals.idealsp.server.dataflow.DataFlowLocation;
+import tf.locals.idealsp.server.dataflow.DataFlowParams;
+import tf.locals.idealsp.server.dataflow.DataFlowToCommand;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class LspServer implements LanguageServer, LanguageClientAware, LspSession, DumbService.DumbModeListener {
+public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession, DumbService.DumbModeListener {
   private final static Logger LOG = Logger.getInstance(LspServer.class);
   private final MyTextDocumentService myTextDocumentService = new MyTextDocumentService(this);
   private final MyWorkspaceService myWorkspaceService = new MyWorkspaceService(this);
@@ -134,11 +141,11 @@ it.setHoverProvider(true);
            )
        );
 
-       it.setCallHierarchyProvider(true);
+it.setCallHierarchyProvider(true);
 
        it.setExperimental(null);
 
-    });
+     });
   }
 
   @NotNull
@@ -211,6 +218,28 @@ it.setHoverProvider(true);
     LOG.info("Exited dumb mode. Refreshing diagnostics...");
     getClient().notifyIndexFinished();
     getTextDocumentService().refreshDiagnostics();
+  }
+
+  public CompletableFuture<List<DataFlowLocation>> dataFlowFrom(@NotNull DataFlowParams params) {
+    try {
+      var project = getProject();
+      return new DataFlowFromCommand(params.getPosition())
+          .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+    } catch (Exception e) {
+      LOG.error("dataFlowFrom() failed", e);
+      return CompletableFuture.completedFuture(List.of());
+    }
+  }
+
+  public CompletableFuture<List<DataFlowLocation>> dataFlowTo(@NotNull DataFlowParams params) {
+    try {
+      var project = getProject();
+      return new DataFlowToCommand(params.getPosition())
+          .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+    } catch (Exception e) {
+      LOG.error("dataFlowTo() failed", e);
+      return CompletableFuture.completedFuture(List.of());
+    }
   }
 
   private class WorkDoneProgressReporter implements ProgressManagerListener {

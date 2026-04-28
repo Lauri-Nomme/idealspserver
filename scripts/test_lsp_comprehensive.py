@@ -623,6 +623,79 @@ def test_all():
     else:
         print(f"15. Cross-file References: FAILED or no result")
 
+    # Test dataflow using LspServer.java (in source root)
+    lsp_server_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    with open(lsp_server_file) as f:
+        lsp_text = f.read()
+    send_notification(
+        sock,
+        "textDocument/didOpen",
+        {
+            "textDocument": {
+                "uri": f"file://{lsp_server_file}",
+                "languageId": "java",
+                "version": 1,
+                "text": lsp_text,
+            }
+        },
+    )
+
+    # Test 21: dataflowFrom on line 45 (project field)
+    resp = send_and_recv(
+        sock,
+        "textDocument/dataflowFrom",
+        {
+            "textDocument": {"uri": f"file://{lsp_server_file}"},
+            "position": {"line": 45, "character": 15},
+        },
+        21,
+    )
+    if resp and "result" in resp:
+        result = resp["result"]
+        if isinstance(result, list):
+            print(f"21. DataFlowFrom on field: OK - Found {len(result)} locations")
+            if len(result) > 0:
+                for item in result:
+                    loc_data = item.get("location", {})
+                    uri = loc_data.get("uri", "no-uri")
+                    range_data = loc_data.get("range", {})
+                    line = range_data.get("start", {}).get("line", -1)
+                    print(f"    - {uri.split('/')[-1]}:{line}")
+            else:
+                print(f"    (Empty result)")
+        else:
+            print(f"21. DataFlowFrom on field: OK - got {type(result).__name__}")
+    else:
+        print(f"21. DataFlowFrom: FAILED")
+
+    # Test 22: dataflowTo on line 45 (project field)
+    resp = send_and_recv(
+        sock,
+        "textDocument/dataflowTo",
+        {
+            "textDocument": {"uri": f"file://{lsp_server_file}"},
+            "position": {"line": 45, "character": 15},
+        },
+        22,
+    )
+    if resp and "result" in resp:
+        result = resp["result"]
+        if isinstance(result, list):
+            print(f"22. DataFlowTo on field: OK - Found {len(result)} locations")
+            if len(result) > 0:
+                for item in result:
+                    loc_data = item.get("location", {})
+                    uri = loc_data.get("uri", "no-uri")
+                    range_data = loc_data.get("range", {})
+                    line = range_data.get("start", {}).get("line", -1)
+                    print(f"    - {uri.split('/')[-1]}:{line}")
+            else:
+                print(f"    (Empty result)")
+        else:
+            print(f"22. DataFlowTo on field: OK - got {type(result).__name__}")
+    else:
+        print(f"22. DataFlowTo: FAILED")
+
     sock.close()
     print("\n=== All tests completed ===")
 
