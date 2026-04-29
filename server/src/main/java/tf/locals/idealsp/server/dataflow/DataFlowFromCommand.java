@@ -7,6 +7,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.slicer.DuplicateMap;
 import com.intellij.slicer.LanguageSlicing;
 import com.intellij.slicer.SliceAnalysisParams;
+import com.intellij.slicer.SliceNode;
 import com.intellij.slicer.SliceRootNode;
 import com.intellij.slicer.SliceUsage;
 import org.eclipse.lsp4j.Location;
@@ -20,6 +21,7 @@ import tf.locals.idealsp.server.util.EditorUtil;
 import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -64,15 +66,8 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
                 SliceUsage rootUsage = LanguageSlicing.getProvider(element).createRootUsage(element, params);
                 SliceRootNode rootNode = new SliceRootNode(ctx.getProject(), new DuplicateMap(), rootUsage);
 
-                for (var sliceNode : rootNode.getChildren()) {
-                    for (var leaf : sliceNode.getChildren()) {
-                        PsiElement sliceElement = leaf.getValue().getElement();
-                        if (sliceElement != null) {
-                            addDataFlowLocation(sliceElement, result, ctx.getPsiFile());
-                        }
-                    }
-                }
-                
+                collectAllLeaves(rootNode.getChildren(), result, ctx.getPsiFile());
+
                 if (result.isEmpty()) {
                     addDataFlowLocation(element, result, ctx.getPsiFile());
                 }
@@ -84,6 +79,20 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
         }
 
         return result;
+    }
+
+    private void collectAllLeaves(Collection<SliceNode> nodes, List<DataFlowLocation> result, PsiFile file) {
+        for (var node : nodes) {
+            var children = node.getChildren();
+            if (children.isEmpty()) {
+                PsiElement element = node.getValue().getElement();
+                if (element != null) {
+                    addDataFlowLocation(element, result, file);
+                }
+            } else {
+                collectAllLeaves(children, result, file);
+            }
+        }
     }
 
     private void addDataFlowLocation(@NotNull PsiElement element, @NotNull List<DataFlowLocation> result, @NotNull PsiFile file) {
