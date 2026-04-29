@@ -640,13 +640,15 @@ def test_all():
         },
     )
 
-    # Test 21: dataflowFrom on line 36 (myTextDocumentService field)
+    # Test 21: dataflowFrom on a local variable assignment in initialize() method
+    # Line with "var oldProject = project;" - data flows project -> oldProject -> used at line (isOpen() check)
+    # Line 56: var oldProject = project;
     resp = send_and_recv(
         sock,
         "textDocument/dataflowFrom",
         {
             "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 36, "character": 45},
+            "position": {"line": 57, "character": 14},
         },
         21,
     )
