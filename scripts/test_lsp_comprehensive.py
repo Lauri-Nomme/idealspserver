@@ -640,13 +640,13 @@ def test_all():
         },
     )
 
-    # Test 21: dataflowFrom on line 45 (project field)
+    # Test 21: dataflowFrom on line 36 (myTextDocumentService field)
     resp = send_and_recv(
         sock,
         "textDocument/dataflowFrom",
         {
             "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 45, "character": 15},
+            "position": {"line": 36, "character": 45},
         },
         21,
     )
@@ -668,13 +668,13 @@ def test_all():
     else:
         print(f"21. DataFlowFrom: FAILED")
 
-    # Test 22: dataflowTo on line 45 (project field)
+    # Test 22: dataflowTo on line 36 (myTextDocumentService field)
     resp = send_and_recv(
         sock,
         "textDocument/dataflowTo",
         {
             "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 45, "character": 15},
+            "position": {"line": 36, "character": 45},
         },
         22,
     )

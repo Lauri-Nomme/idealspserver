@@ -64,12 +64,14 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
                 SliceUsage rootUsage = LanguageSlicing.getProvider(element).createRootUsage(element, params);
                 SliceRootNode rootNode = new SliceRootNode(ctx.getProject(), new DuplicateMap(), rootUsage);
 
-                rootNode.getChildren().forEach(sliceNode -> {
-                    PsiElement sliceElement = sliceNode.getValue().getElement();
-                    if (sliceElement != null) {
-                        addDataFlowLocation(sliceElement, result, ctx.getPsiFile());
+                for (var sliceNode : rootNode.getChildren()) {
+                    for (var leaf : sliceNode.getChildren()) {
+                        PsiElement sliceElement = leaf.getValue().getElement();
+                        if (sliceElement != null) {
+                            addDataFlowLocation(sliceElement, result, ctx.getPsiFile());
+                        }
                     }
-                });
+                }
                 
                 if (result.isEmpty()) {
                     addDataFlowLocation(element, result, ctx.getPsiFile());
