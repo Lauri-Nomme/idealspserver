@@ -49,7 +49,16 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
 
         var disposable = Disposer.newDisposable();
         try {
-            EditorUtil.withEditor(disposable, ctx.getPsiFile(), pos, editor -> {
+            // Commit PSI document to ensure up-to-date PSI tree (matching diagnostics flow)
+            PsiFile psiFile = ctx.getPsiFile();
+            if (psiFile.getVirtualFile() != null) {
+                var doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(psiFile.getVirtualFile());
+                if (doc != null) {
+                    com.intellij.psi.PsiDocumentManager.getInstance(ctx.getProject()).commitDocument(doc);
+                }
+            }
+
+            EditorUtil.withEditor(disposable, psiFile, pos, editor -> {
                 int offset = MiscUtil.positionToOffset(MiscUtil.getDocument(ctx.getPsiFile()), pos);
                 PsiElement element = ctx.getPsiFile().findElementAt(offset);
 
