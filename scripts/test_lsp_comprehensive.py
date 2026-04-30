@@ -640,14 +640,13 @@ def test_all():
         },
     )
 
-    # Test 21: dataflowFrom on client field in LspServer.java (already indexed from previous tests)
-    # Line 42: private MyLanguageClient client = null;
+# Test 21: dataflowFrom on a field declaration (line 35, char 40 = myTextDocumentService)
     resp = send_and_recv(
         sock,
         "textDocument/dataflowFrom",
         {
             "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 42, "character": 25},
+            "position": {"line": 35, "character": 40},
         },
         21,
     )
@@ -669,13 +668,13 @@ def test_all():
     else:
         print(f"21. DataFlowFrom: FAILED")
 
-    # Test 22: dataflowTo on client field
+    # Test 22: dataflowTo on same field
     resp = send_and_recv(
         sock,
         "textDocument/dataflowTo",
         {
             "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 42, "character": 25},
+            "position": {"line": 35, "character": 40},
         },
         22,
     )
