@@ -1,14 +1,13 @@
 package tf.locals.idealsp.server.dataflow;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.slicer.DuplicateMap;
 import com.intellij.slicer.LanguageSlicing;
 import com.intellij.slicer.SliceAnalysisParams;
-import com.intellij.slicer.SliceNode;
-import com.intellij.slicer.SliceRootNode;
 import com.intellij.slicer.SliceUsage;
 import org.eclipse.lsp4j.Location;
 import org.eclipse.lsp4j.Position;
@@ -21,7 +20,6 @@ import tf.locals.idealsp.server.util.EditorUtil;
 import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -64,10 +62,23 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
                 params.scope = new com.intellij.analysis.AnalysisScope(ctx.getProject());
 
                 SliceUsage rootUsage = LanguageSlicing.getProvider(element).createRootUsage(element, params);
-                SliceRootNode rootNode = new SliceRootNode(ctx.getProject(), new DuplicateMap(), rootUsage);
 
-                collectAllLeaves(rootNode.getChildren(), result, ctx.getPsiFile());
+                List<SliceUsage> allUsages = new ArrayList<>();
+                ProgressManager.getInstance().runProcess(
+                    () -> rootUsage.processChildren(usage -> {
+                        allUsages.add(usage);
+                        return true;
+                    }),
+                    new ProgressIndicatorBase()
+                );
 
+                for (SliceUsage usage : allUsages) {
+                    PsiElement sliceElement = usage.getElement();
+                    if (sliceElement != null) {
+                        addDataFlowLocation(sliceElement, result, ctx.getPsiFile());
+                    }
+                }
+                
                 if (result.isEmpty()) {
                     addDataFlowLocation(element, result, ctx.getPsiFile());
                 }
@@ -79,20 +90,6 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
         }
 
         return result;
-    }
-
-    private void collectAllLeaves(Collection<SliceNode> nodes, List<DataFlowLocation> result, PsiFile file) {
-        for (var node : nodes) {
-            var children = node.getChildren();
-            if (children.isEmpty()) {
-                PsiElement element = node.getValue().getElement();
-                if (element != null) {
-                    addDataFlowLocation(element, result, file);
-                }
-            } else {
-                collectAllLeaves(children, result, file);
-            }
-        }
     }
 
     private void addDataFlowLocation(@NotNull PsiElement element, @NotNull List<DataFlowLocation> result, @NotNull PsiFile file) {
