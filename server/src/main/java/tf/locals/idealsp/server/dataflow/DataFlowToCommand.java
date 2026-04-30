@@ -1,6 +1,8 @@
 package tf.locals.idealsp.server.dataflow;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -61,15 +63,21 @@ public class DataFlowToCommand extends LspCommand<List<DataFlowLocation>> {
 
                 SliceUsage rootUsage = LanguageSlicing.getProvider(element).createRootUsage(element, params);
 
-                List<SliceUsage> children = new ArrayList<>();
-                rootUsage.processChildren(new CommonProcessors.CollectProcessor<>(children));
+                List<SliceUsage> allUsages = new ArrayList<>();
+                ProgressManager.getInstance().runProcess(
+                    () -> rootUsage.processChildren(new CommonProcessors.CollectProcessor<>(allUsages)),
+                    new ProgressIndicatorBase()
+                );
 
-                addDataFlowLocation(element, result, ctx.getPsiFile());
-                for (SliceUsage usage : children) {
+                for (SliceUsage usage : allUsages) {
                     PsiElement sliceElement = usage.getElement();
                     if (sliceElement != null) {
                         addDataFlowLocation(sliceElement, result, ctx.getPsiFile());
                     }
+                }
+                
+                if (result.isEmpty()) {
+                    addDataFlowLocation(element, result, ctx.getPsiFile());
                 }
             });
         } catch (Exception e) {
