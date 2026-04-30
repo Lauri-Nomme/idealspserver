@@ -7,7 +7,10 @@ import json
 import socket
 import time
 
-PROJECT_PATH = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java"
+# Workspace root (where .idea/ lives — enables Gradle import and proper indexing)
+PROJECT_ROOT = "/vokk/home/lauri/dev/idealspserver/git"
+# Source root for file paths (src/main/java)
+SOURCE_PATH = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java"
 
 
 # Track diagnostics and code actions responses
@@ -124,7 +127,7 @@ def test_all():
         {
             "processId": 12345,
             "clientInfo": {"name": "test", "version": "1.0"},
-            "workspaceFolders": [{"uri": f"file://{PROJECT_PATH}", "name": "server"}],
+            "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}],
             "capabilities": {},
         },
         1,
@@ -134,7 +137,7 @@ def test_all():
     send_notification(sock, "initialized", {})
 
     # Open file
-    test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
     with open(test_file) as f:
         text = f.read()
 
@@ -330,7 +333,7 @@ def test_all():
         print(f"11. Document highlight: FAILED (error={err})")
 
     # Test diagnostics on existing file - use LspServer.java which we know exists
-    error_test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    error_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
 
     # Send didChange to introduce an error - change an int to String
     send_notification(
@@ -370,7 +373,7 @@ def test_all():
     drain_notifications(sock, seconds=8)
 
     # Test code actions - organize imports on a clean file (no error needed)
-    org_test_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    org_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
     with open(org_test_file) as f:
         org_text = f.read()
 
@@ -576,7 +579,7 @@ def test_all():
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
     bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/tf/locals/idealsp/server/bootstrap"
-    lsp_server_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
     lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
 
     # Open LspServerRunnerBase.java which references LspServer
@@ -624,7 +627,7 @@ def test_all():
         print(f"15. Cross-file References: FAILED or no result")
 
     # Test dataflow using LspServer.java (already opened earlier)
-    lsp_server_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
     with open(lsp_server_file) as f:
         lsp_text = f.read()
     send_notification(
