@@ -623,31 +623,31 @@ def test_all():
     else:
         print(f"15. Cross-file References: FAILED or no result")
 
-    # Test dataflow using DataFlowTestTarget.java (rich data flow)
-    dataflow_target_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/DataFlowTestTarget.java"
-    with open(dataflow_target_file) as f:
-        dataflow_text = f.read()
+    # Test dataflow using LspServer.java (already opened earlier)
+    lsp_server_file = f"{PROJECT_PATH}/tf/locals/idealsp/server/LspServer.java"
+    with open(lsp_server_file) as f:
+        lsp_text = f.read()
     send_notification(
         sock,
         "textDocument/didOpen",
         {
             "textDocument": {
-                "uri": f"file://{dataflow_target_file}",
+                "uri": f"file://{lsp_server_file}",
                 "languageId": "java",
                 "version": 1,
-                "text": dataflow_text,
+                "text": lsp_text,
             }
         },
     )
 
-    # Test 21: dataflowFrom on constructor param (input at line 8)
-    # "public DataFlowTestTarget(String input)" - param flows to this.inputValue = input
+    # Test 21: dataflowFrom on client field in LspServer.java (already indexed from previous tests)
+    # Line 42: private MyLanguageClient client = null;
     resp = send_and_recv(
         sock,
         "textDocument/dataflowFrom",
         {
-            "textDocument": {"uri": f"file://{dataflow_target_file}"},
-            "position": {"line": 8, "character": 28},
+            "textDocument": {"uri": f"file://{lsp_server_file}"},
+            "position": {"line": 42, "character": 25},
         },
         21,
     )
@@ -669,13 +669,13 @@ def test_all():
     else:
         print(f"21. DataFlowFrom: FAILED")
 
-    # Test 22: dataflowTo on resultValue field (line 6)
+    # Test 22: dataflowTo on client field
     resp = send_and_recv(
         sock,
         "textDocument/dataflowTo",
         {
-            "textDocument": {"uri": f"file://{dataflow_target_file}"},
-            "position": {"line": 6, "character": 20},
+            "textDocument": {"uri": f"file://{lsp_server_file}"},
+            "position": {"line": 42, "character": 25},
         },
         22,
     )
