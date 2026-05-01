@@ -2,7 +2,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 
 plugins {
     id("java")
-    id("org.jetbrains.intellij.platform") version "2.14.0"
+    id("org.jetbrains.intellij.platform") version "2.16.0"
 }
 
 group = "tf.locals.idealsp.server"
@@ -59,6 +59,10 @@ intellijPlatform {
             untilBuild = "262.*" // IntelliJ 2025.3 - 2026.1
         }
     }
+}
+
+tasks.test {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.runIde {
