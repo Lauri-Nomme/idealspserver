@@ -1,8 +1,8 @@
 import { LspClient } from "../lsp-client"
 import { SymbolPosition } from "../symbol-resolver"
 
-export async function defineSymbol(client: LspClient, pos: SymbolPosition): Promise<any[]> {
-  const resp = await client.sendRequest("textDocument/definition", {
+export async function getImplementations(client: LspClient, pos: SymbolPosition): Promise<any[]> {
+  const resp = await client.sendRequest("textDocument/implementation", {
     textDocument: { uri: pos.uri },
     position: { line: pos.line, character: pos.character },
   }, 15_000)

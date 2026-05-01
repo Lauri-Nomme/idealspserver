@@ -7,6 +7,12 @@ import { hoverSymbol } from "./operations/hover"
 import { getCompletions } from "./operations/complete"
 import { searchSymbols } from "./operations/symbols"
 import { getDiagnostics } from "./operations/diagnostics"
+import { getImplementations } from "./operations/implement"
+import { getTypeDefinition } from "./operations/type-def"
+import { getSignatureHelp } from "./operations/signature"
+import { getCodeActions } from "./operations/actions"
+import { getCallHierarchy } from "./operations/calls"
+import { getDataflow } from "./operations/dataflow"
 
 interface Output {
   success: boolean
@@ -172,8 +178,67 @@ async function main() {
         break
       }
 
+      case "implement":
+      case "impl": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const results = await getImplementations(client, pos)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        printJson(ok(operation, results, symbol, file ?? pos.file))
+        break
+      }
+
+      case "type-def":
+      case "td": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const results = await getTypeDefinition(client, pos)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        printJson(ok(operation, results, symbol, file ?? pos.file))
+        break
+      }
+
+      case "signature":
+      case "sig": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const results = await getSignatureHelp(client, pos)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        printJson(ok(operation, results, symbol, file ?? pos.file))
+        break
+      }
+
+      case "actions":
+      case "act": {
+        const results = await getCodeActions(client, file || symbol, wsRoot)
+        printJson(ok(operation, results, undefined, file || symbol))
+        break
+      }
+
+      case "calls":
+      case "call": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const dir = (args.dir as string) || "incoming"
+        const results = await getCallHierarchy(client, pos, dir === "outgoing" ? "outgoing" : "incoming")
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        printJson(ok(operation, results, symbol, file ?? pos.file))
+        break
+      }
+
+      case "dataflow":
+      case "df": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const dir = (args.dir as string) || "from"
+        const results = await getDataflow(client, pos, dir === "to" ? "to" : "from")
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        printJson(ok(operation, results, symbol, file ?? pos.file))
+        break
+      }
+
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: define, references, hover, complete, symbols, diagnostics"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow"))
     }
 
     client.sendNotification("shutdown", {})
