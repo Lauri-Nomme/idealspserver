@@ -61,15 +61,9 @@ jobs:
       - name: Download IntelliJ IDEA
         if: steps.cache-idea.outputs.cache-hit != 'true'
         run: |
-          curl -fsSL -o idea.tar.gz "https://download.jetbrains.com/idea/ideaIC-2026.1.tar.gz"
-          tar xzf idea.tar.gz
-          IDEA_DIR=$(ls -d idea-IC-*/ 2>/dev/null | head -1)
-          if [ -z "$IDEA_DIR" ]; then
-            echo "ERROR: Could not find extracted IDE directory"
-            ls -la
-            exit 1
-          fi
-          mv "$IDEA_DIR" idea
+          mkdir -p idea
+          curl -fsSL -o idea.zip "https://www.jetbrains.com/intellij-repository/releases/com/jetbrains/intellij/idea/ideaIC/2026.1/ideaIC-2026.1.zip"
+          unzip -q idea.zip -d idea
       - name: Build plugin
         uses: gradle/gradle-build-action@v3
         with:
