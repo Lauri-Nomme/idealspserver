@@ -626,30 +626,33 @@ def test_all():
     else:
         print(f"15. Cross-file References: FAILED or no result")
 
-    # Test dataflow using LspServer.java (already opened earlier)
-    lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-    with open(lsp_server_file) as f:
-        lsp_text = f.read()
+# Test dataflow using DataFlowTestTarget.java (rich data flow chains)
+    dataflow_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/DataFlowTestTarget.java"
+    with open(dataflow_file) as f:
+        dataflow_text = f.read()
     send_notification(
         sock,
         "textDocument/didOpen",
         {
             "textDocument": {
-                "uri": f"file://{lsp_server_file}",
+                "uri": f"file://{dataflow_file}",
                 "languageId": "java",
                 "version": 1,
-                "text": lsp_text,
+                "text": dataflow_text,
             }
         },
     )
+    print("    Waiting 10s for dataflow file indexing...")
+    time.sleep(10)
 
-# Test 21: dataflowFrom on a field declaration (line 35, char 40 = myTextDocumentService)
+    # Test 21: dataflowFrom on constructor param (line 7, char 37 = "input")
+    # public DataFlowTestTarget(String input) — flows to: this.inputValue = input (line 8)
     resp = send_and_recv(
         sock,
         "textDocument/dataflowFrom",
         {
-            "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 35, "character": 40},
+            "textDocument": {"uri": f"file://{dataflow_file}"},
+            "position": {"line": 7, "character": 37},
         },
         21,
     )
@@ -671,13 +674,14 @@ def test_all():
     else:
         print(f"21. DataFlowFrom: FAILED")
 
-    # Test 22: dataflowTo on same field
+    # Test 22: dataflowTo on inputValue field (line 3, char 20 = "n" in inputValue)
+    # Should find: constructor param "input" that flows INTO this field
     resp = send_and_recv(
         sock,
         "textDocument/dataflowTo",
         {
-            "textDocument": {"uri": f"file://{lsp_server_file}"},
-            "position": {"line": 35, "character": 40},
+            "textDocument": {"uri": f"file://{dataflow_file}"},
+            "position": {"line": 3, "character": 20},
         },
         22,
     )

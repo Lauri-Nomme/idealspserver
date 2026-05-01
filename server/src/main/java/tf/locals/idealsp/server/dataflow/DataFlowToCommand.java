@@ -56,6 +56,17 @@ public class DataFlowToCommand extends LspCommand<List<DataFlowLocation>> {
                 if (element == null) {
                     return;
                 }
+                // Resolve to significant parent (PsiIdentifier -> PsiVariable, etc.)
+                PsiElement resolved = element;
+                while (resolved != null
+                        && !(resolved instanceof com.intellij.psi.PsiVariable)
+                        && !(resolved instanceof com.intellij.psi.PsiMethod)
+                        && !(resolved instanceof com.intellij.psi.PsiClass)) {
+                    resolved = resolved.getParent();
+                }
+                if (resolved != null) {
+                    element = resolved;
+                }
 
                 SliceAnalysisParams params = new SliceAnalysisParams();
                 params.dataFlowToThis = true;
