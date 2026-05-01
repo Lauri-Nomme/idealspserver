@@ -32,25 +32,36 @@ function fail(operation: string, error: string, hint?: string): Output {
 }
 
 function ok(operation: string, results: any[], query?: string, file?: string): Output {
-  return {
-    success: true,
-    operation,
-    query,
-    file,
-    count: results.length,
-    results,
-  }
+  return { success: true, operation, query, file, count: results.length, results }
 }
 
 function printJson(obj: Output): void {
   const { results, ...rest } = obj
   const lines = [JSON.stringify(rest)]
   if (results && results.length > 0) {
-    for (const r of results) {
-      lines.push(JSON.stringify(r))
-    }
+    for (const r of results) lines.push(JSON.stringify(r))
   }
   process.stdout.write(lines.join("\n") + "\n")
+}
+
+async function addContext(results: any[], contextLines: number): Promise<void> {
+  for (const r of results) {
+    if (!r.file || r.line == null) continue
+    const f = Bun.file(r.file)
+    if (!(await f.exists())) continue
+    const lines = (await f.text()).split("\n")
+    const start = Math.max(0, r.line - contextLines)
+    const end = Math.min(lines.length, r.line + contextLines + 1)
+    r.context = []
+    for (let i = start; i < end; i++) {
+      r.context.push({ line: i, text: lines[i], marker: i === r.line ? ">" : " " })
+    }
+  }
+}
+
+function filterSeverity(results: any[], severity: string): any[] {
+  if (!severity) return results
+  return results.filter(r => r.severity === severity)
 }
 
 function parseArgs(argv: string[]) {
@@ -87,7 +98,7 @@ async function main() {
   const port = parseInt(args.port as string) || 8989
 
   if (positional.length < 1) {
-    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N]"))
+    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--wait] [--context N] [--severity error|warn|info|hint]"))
     process.exit(1)
   }
 
@@ -95,13 +106,14 @@ async function main() {
   const inIdx = positional.indexOf("in")
   const symbol = positional.slice(1, inIdx >= 0 ? inIdx : positional.length).join(" ")
   const file = inIdx >= 0 ? positional.slice(inIdx + 1).join(" ") : undefined
+  const severity = (args.severity as string) || ""
+  const ctxLines = parseInt(args.context as string) || 0
 
   const client = new LspClient(port)
 
   try {
     await client.connect()
 
-    // Initialize
     const wsRoot = process.env.PROJECT_WORKSPACE || process.cwd()
     const initResp = await client.sendRequest("initialize", {
       processId: process.pid,
@@ -116,16 +128,18 @@ async function main() {
 
     client.sendNotification("initialized", {})
 
+    if (args.wait) {
+      await client.waitForIndexing(15)
+    }
+
     switch (operation) {
       case "define":
       case "def": {
         const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
-        if (!pos) {
-          printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first"))
-          return
-        }
+        if (!pos) { printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first")); return }
         const results = await defineSymbol(client, pos)
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }
@@ -133,12 +147,10 @@ async function main() {
       case "references":
       case "refs": {
         const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
-        if (!pos) {
-          printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first"))
-          return
-        }
+        if (!pos) { printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first")); return }
         const results = await findReferences(client, pos)
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }
@@ -146,10 +158,7 @@ async function main() {
       case "hover":
       case "h": {
         const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
-        if (!pos) {
-          printJson(fail(operation, "symbol not found"))
-          return
-        }
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
         const results = await hoverSymbol(client, pos)
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
         printJson(ok(operation, results, symbol, file ?? pos.file))
@@ -174,7 +183,9 @@ async function main() {
       case "diagnostics":
       case "diag": {
         const results = await getDiagnostics(client, file || symbol, wsRoot)
-        printJson(ok(operation, results, undefined, file || symbol))
+        const filtered = filterSeverity(results, severity)
+        if (ctxLines) await addContext(filtered, ctxLines)
+        printJson(ok(operation, filtered, undefined, file || symbol))
         break
       }
 
@@ -184,6 +195,7 @@ async function main() {
         if (!pos) { printJson(fail(operation, "symbol not found")); return }
         const results = await getImplementations(client, pos)
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }
@@ -194,6 +206,7 @@ async function main() {
         if (!pos) { printJson(fail(operation, "symbol not found")); return }
         const results = await getTypeDefinition(client, pos)
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }
@@ -222,6 +235,7 @@ async function main() {
         const dir = (args.dir as string) || "incoming"
         const results = await getCallHierarchy(client, pos, dir === "outgoing" ? "outgoing" : "incoming")
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }
@@ -233,6 +247,7 @@ async function main() {
         const dir = (args.dir as string) || "from"
         const results = await getDataflow(client, pos, dir === "to" ? "to" : "from")
         if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file ?? pos.file))
         break
       }

@@ -30,3 +30,6 @@ bin/
 
 ### IntelliJ Platform ###
 server/.intellijPlatform/
+
+### Python ###
+__pycache__/
