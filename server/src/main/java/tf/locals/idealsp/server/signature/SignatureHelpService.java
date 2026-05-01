@@ -13,6 +13,7 @@ import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.psi.PsiDocumentManager;
@@ -99,16 +100,21 @@ final public class SignatureHelpService implements Disposable {
   private static boolean findAndUseValidHandler(
       @NotNull ParameterInfoHandler<PsiElement, Object>[] handlers,
       @NotNull ShowParameterInfoContext context) {
-    return ReadAction.compute(() -> {
-      for (ParameterInfoHandler<PsiElement, Object> handler : handlers) {
-        PsiElement element = handler.findElementForParameterInfo(context);
-        if (element != null && element.isValid()) {
-          handler.showParameterInfo(element, context);
-          return true;
+    try {
+      return ReadAction.compute(() -> {
+        for (ParameterInfoHandler<PsiElement, Object> handler : handlers) {
+          PsiElement element = handler.findElementForParameterInfo(context);
+          if (element != null && element.isValid()) {
+            handler.showParameterInfo(element, context);
+            return true;
+          }
         }
-      }
+        return false;
+      });
+    } catch (IndexNotReadyException e) {
+      LOG.warn("Index not ready for signature help", e);
       return false;
-    });
+    }
   }
 
   @NotNull

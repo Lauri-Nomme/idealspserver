@@ -5,7 +5,9 @@ import org.eclipse.lsp4j.jsonrpc.messages.Tuple;
 import org.junit.Test;
 import tf.locals.idealsp.server.LspPath;
 import tf.locals.idealsp.server.TestUtil;
+import tf.locals.idealsp.server.util.MiscUtil;
 
+import java.nio.file.Files;
 import java.util.List;
 
 public class SignatureHelpTest extends LspServerTestBase {
@@ -17,6 +19,16 @@ public class SignatureHelpTest extends LspServerTestBase {
   @Test
   public void signatureHelp() {
     final var filePath = LspPath.fromLocalPath(getProjectPath().resolve("src/Test.java"));
+
+    final var didOpenParams = MiscUtil.with(new DidOpenTextDocumentParams(),
+        params -> params.setTextDocument(MiscUtil.with(new TextDocumentItem(), item -> {
+          item.setUri(filePath.toLspUri());
+          item.setText(MiscUtil.makeThrowsUnchecked(() -> Files.readString(filePath.toPath())));
+          item.setVersion(1);
+        })));
+
+    server().getTextDocumentService().didOpen(didOpenParams);
+
     SignatureHelpParams params = new SignatureHelpParams();
     params.setTextDocument(new TextDocumentIdentifier(filePath.toLspUri()));
     params.setPosition(new Position(4, 8));
