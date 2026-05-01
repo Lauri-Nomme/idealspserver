@@ -27,6 +27,7 @@ export async function resolveSymbolPosition(
 
     await client.drainNotifications(8000)
 
+    // Try documentSymbol first (top-level symbols: classes, fields, methods)
     const resp = await client.sendRequest("textDocument/documentSymbol", {
       textDocument: { uri },
     })
@@ -37,7 +38,14 @@ export async function resolveSymbolPosition(
     if (match) {
       return { uri, file: absPath, line: match.selectionRange.start.line, character: match.selectionRange.start.character, opened: true }
     }
-    // symbol not found in file — close and try workspace search
+
+    // Fallback: text scan for non-top-level symbols (methods, variables inside classes)
+    const textPos = findSymbolInText(text, symbol)
+    if (textPos) {
+      return { uri, file: absPath, line: textPos.line, character: textPos.character, opened: true }
+    }
+
+    // Symbol not found — close file and try workspace search
     client.sendNotification("textDocument/didClose", { textDocument: { uri } })
   }
 
@@ -55,6 +63,28 @@ export async function resolveSymbolPosition(
     character: match.location?.range?.start?.character || 0,
     opened: false,
   }
+}
+
+function findSymbolInText(text: string, symbol: string): { line: number; character: number } | null {
+  const lines = text.split("\n")
+  const patterns = [
+    new RegExp(`\\b(public|private|protected|static|final|abstract|synchronized|native|default)?\\s*(class|interface|enum|record|@interface)?\\s*\\b${escapeRegex(symbol)}\\b`),
+    new RegExp(`\\b${escapeRegex(symbol)}\\s*\\(`),
+    new RegExp(`\\b${escapeRegex(symbol)}\\b`),
+  ]
+  for (const pattern of patterns) {
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(pattern)
+      if (match && match.index !== undefined) {
+        return { line: i, character: match.index + match[0].indexOf(symbol) }
+      }
+    }
+  }
+  return null
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 function flattenSymbols(symbols: any[]): any[] {
