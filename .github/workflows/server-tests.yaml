@@ -52,30 +52,61 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Build server
-        uses: gradle/gradle-build-action@v3
+      - name: Cache IntelliJ IDEA
+        id: cache-idea
+        uses: actions/cache@v4
         with:
-          arguments: installDist
-          build-root-directory: server
-      - name: Start server in background
+          path: idea
+          key: idea-IC-2026.1
+      - name: Download IntelliJ IDEA
+        if: steps.cache-idea.outputs.cache-hit != 'true'
         run: |
-          cd server
-          ./build/install/idealsp/bin/idealsp &
-          SERVER_PID=$!
-          echo "Server PID: $SERVER_PID"
-          echo "$SERVER_PID" > /tmp/idealsp_server.pid
-          sleep 15
-          if ! kill -0 $SERVER_PID 2>/dev/null; then
-            echo "Server failed to start"
+          curl -fsSL -o idea.tar.gz "https://download.jetbrains.com/idea/ideaIC-2026.1.tar.gz"
+          tar xzf idea.tar.gz
+          IDEA_DIR=$(ls -d idea-IC-*/ 2>/dev/null | head -1)
+          if [ -z "$IDEA_DIR" ]; then
+            echo "ERROR: Could not find extracted IDE directory"
+            ls -la
             exit 1
           fi
-          echo "Server started successfully"
+          mv "$IDEA_DIR" idea
+      - name: Build plugin
+        uses: gradle/gradle-build-action@v3
+        with:
+          arguments: buildPlugin --no-daemon -q
+          build-root-directory: server
+      - name: Install plugin into IDE
+        run: |
+          mkdir -p idea/plugins/idealsp/lib
+          unzip -o server/build/distributions/idealsp-*.zip -d /tmp/plugin-dist
+          cp /tmp/plugin-dist/idealsp/lib/* idea/plugins/idealsp/lib/
+      - name: Start IDE with LSP server
+        run: |
+          export IDEA_JDK="$(pwd)/idea/jbr"
+          export JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+          ./idea/bin/idea.sh lsp-server tcp 8989 &
+          echo $! > /tmp/idealsp_server.pid
+          echo "Waiting for LSP server on port 8989..."
+          for i in $(seq 1 90); do
+            if python3 -c "import socket; s=socket.socket(); s.connect(('127.0.0.1', 8989)); s.close()" 2>/dev/null; then
+              echo "LSP server ready after ${i}s"
+              break
+            fi
+            if [ $i -eq 90 ]; then
+              echo "ERROR: LSP server not responding after 90s"
+              exit 1
+            fi
+            sleep 1
+          done
       - name: Run comprehensive Python test
+        env:
+          PROJECT_WORKSPACE: ${{ github.workspace }}
         run: python3 scripts/test_lsp_comprehensive.py
-        working-directory: .
-      - name: Stop server
+      - name: Stop IDE
+        if: always()
         run: |
           if [ -f /tmp/idealsp_server.pid ]; then
             kill $(cat /tmp/idealsp_server.pid) 2>/dev/null || true
             rm /tmp/idealsp_server.pid
           fi
+          pkill -f "idea.sh lsp-server" || true
