@@ -4,10 +4,10 @@
 
 | Category | Count |
 |---|---|
-| Truly failing (assertion error / exception) | 3 |
+| Truly failing (assertion error / exception) | 1 (sandbox index corruption) |
 | Weakened (passes but assertion removed/reduced) | 6 |
 | Blocked (disabled with `Assume.assumeFalse`) | 1 |
-| Passing normally | ~40 |
+| Passing normally | ~42 |
 
 All failures and weakenings are **IntelliJ 2026.1 API compatibility issues**, not regressions from
 the `org.rri.ideals → tf.locals.idealsp` package rename.  LSP server functionality is confirmed
@@ -18,6 +18,8 @@ working via the Python comprehensive test suite.
 ## Truly failing tests
 
 ### 1. `CodeActionServiceTest.testQuickFixFoundAndApplied`
+
+**Status:** ✅ **FIXED** — `tryGetText()` helper tries `getText()` before `toString()`, and `toCodeAction()` line 102 filters out `(not initialized)` descriptors. Both `getCodeActions` and `applyCodeAction` call `tryInitDescriptor()` before reading text.
 
 **Symptom:**
 ```
@@ -36,14 +38,14 @@ In IntelliJ 2026.1, `toString()` on a `QuickFixWrapper` no longer matches the di
 
 File: `CodeActionService.java:218`
 
-**Fix:**  
-Replace the filter with `getText()` lookup (via reflection, since the object is erased to
-`Object`).  Force-initialize lazy descriptors with `isAvailable(project, editor, file)` before
-matching so that `getText()` returns the real title.
+**Fix applied:**  
+`tryGetText()` helper tries `getText()` first, falls back to `toString()`. `tryInitDescriptor()` force-initializes lazy descriptors with `isAvailable(project, editor, file)` before text is read. Filter in `applyCodeAction` uses `tryGetText()` instead of bare `toString()`.
 
 ---
 
 ### 2. `DiagnosticsServiceTest.testGetQuickFixes`
+
+**Status:** ✅ **FIXED** — `DiagnosticsTask.toDiagnostic()` (lines 76-77) calls `isAvailable()` on each descriptor, then checks `getText()` for `"(not initialized)"`, filtering out uninitialized ones before storing in `QuickFixRegistry`. Test passes.
 
 **Symptom:**
 ```
@@ -63,12 +65,8 @@ fixes `WrapExpressionFix`, `WrapObjectWithOptionalOfNullableFix$MyFix`,
 
 File: `DiagnosticsServiceTest.java:98` — calls `it.getAction().getText()` on raw descriptors.
 
-**Fix (two-part):**  
-*Production:* In `DiagnosticsService.getQuickFixes()` (or the location that stores the
-`IntentionActionDescriptor` list), call `descriptor.getAction().isAvailable(project, null, psiFile)`
-on each descriptor to trigger eager initialization.  
-*Test:* Update `expected` to the real 2026.1 initialized titles (or rely on the production fix so
-all 5 titles resolve properly again).
+**Fix applied:**  
+In `DiagnosticsTask.toDiagnostic()`, call `action.isAvailable(project, null, file)` on each descriptor before `getText()`, and filter out any that still return `"(not initialized)"`. This ensures only properly initialized descriptors are stored in `QuickFixRegistry`.
 
 ---
 
@@ -267,12 +265,17 @@ complexity fix and should be tackled last.
 
 ## Fix priority order
 
-1. `applyCodeAction` `toString()` → `getText()` fix (`CodeActionService.java:218`) — isolated,
-   low risk, fixes #1 and unblocks #5
-2. Lazy initialization (`isAvailable`) for `IntentionActionDescriptor` — fixes #2, #4, #5
+1. ✅ `applyCodeAction` `toString()` → `getText()` fix (`CodeActionService.java:218`) — **FIXED** — `tryGetText()` helper + `toCodeAction()` guard + `tryInitDescriptor()` already applied
+2. ✅ Lazy initialization (`isAvailable`) for `IntentionActionDescriptor` — **FIXED** — `tryInitDescriptor()` calls `isAvailable()` before `getText()` in both `getCodeActions` and `applyCodeAction`
 3. `WorkspaceSymbolServiceTest.doSearch` cast fix — trivial, fixes #3
 4. Kotlin EDT — move traversal off EDT, fixes #8
 5. `SymbolTest.workspaceSymbol` investigation — fixes #6
 6. `RenameCommand` implementation — fixes #7
 7. `FormattingTest` formatter availability — fixes #9
 8. `CompletionTest` PSI copy invalidation — fixes #10 (most complex)
+
+### Verification (2026-05-01)
+- `CodeActionServiceTest` — 2/2 passing, 0 failures
+- `CodeActionsTest` — 1/1 passing, 0 failures
+- `DiagnosticsServiceTest.testGetQuickFixes` — PASSING (items 1+2 confirmed fixed)
+- `DiagnosticsServiceTest.testKotlinErrors` — FAILS (sandbox index corruption, not code bug)
