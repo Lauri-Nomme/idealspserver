@@ -1,6 +1,12 @@
 import { LspClient } from "../lsp-client"
 import { SymbolPosition } from "../symbol-resolver"
 
+function extractLocation(r: any): { uri: string; rangeStart: any } {
+  if (r.uri && r.range) return { uri: r.uri, rangeStart: r.range.start }
+  if (r.targetUri) return { uri: r.targetUri, rangeStart: r.targetSelectionRange?.start || r.targetRange?.start }
+  return { uri: r.uri || r.targetUri || "", rangeStart: r }
+}
+
 export async function findReferences(client: LspClient, pos: SymbolPosition): Promise<any[]> {
   const resp = await client.sendRequest("textDocument/references", {
     textDocument: { uri: pos.uri },
@@ -10,9 +16,12 @@ export async function findReferences(client: LspClient, pos: SymbolPosition): Pr
 
   const raw = resp?.result || []
   if (!Array.isArray(raw)) return []
-  return raw.map((r: any) => ({
-    file: (r.uri || "").replace(/^file:\/\//, ""),
-    line: r.range?.start?.line,
-    character: r.range?.start?.character,
-  }))
+  return raw.map((r: any) => {
+    const loc = extractLocation(r)
+    return {
+      file: loc.uri.replace(/^file:\/\//, ""),
+      line: loc.rangeStart?.line,
+      character: loc.rangeStart?.character,
+    }
+  })
 }
