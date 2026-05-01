@@ -4,13 +4,14 @@ Test script for IdeaLS LSP server - comprehensive version.
 """
 
 import json
+import os
 import socket
 import time
 
 # Workspace root (where .idea/ lives — enables Gradle import and proper indexing)
-PROJECT_ROOT = "/vokk/home/lauri/dev/idealspserver/git"
+PROJECT_ROOT = os.environ.get("PROJECT_WORKSPACE", "/vokk/home/lauri/dev/idealspserver/git")
 # Source root for file paths (src/main/java)
-SOURCE_PATH = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java"
+SOURCE_PATH = os.path.join(PROJECT_ROOT, "server/src/main/java")
 
 
 # Track diagnostics and code actions responses
@@ -424,7 +425,7 @@ def test_all():
     # ============================================
     # Setup: Open the test-data file which has callers inside same file
     # getName() is called by process() inside test-data
-    test_calls_file = "/vokk/home/lauri/dev/idealspserver/git/server/test-data/callhierarchy/TestCalls.java"
+    test_calls_file = os.path.join(PROJECT_ROOT, "server/test-data/callhierarchy/TestCalls.java")
     try:
         with open(test_calls_file) as f:
             test_calls_text = f.read()
@@ -578,7 +579,7 @@ def test_all():
 
     # Test cross-file references
     # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
-    bootstrap_path = "/vokk/home/lauri/dev/idealspserver/git/server/src/main/java/tf/locals/idealsp/server/bootstrap"
+    bootstrap_path = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/bootstrap")
     lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
     lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
 
