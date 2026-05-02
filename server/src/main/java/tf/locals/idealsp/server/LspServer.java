@@ -44,6 +44,11 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
   @Nullable
   private Project project = null;
 
+  @Nullable
+  private volatile LspPath workspaceRoot = null;
+
+  private volatile boolean stopped = false;
+
   public LspServer() {
     messageBusConnection = ApplicationManager.getApplication().getMessageBus().connect();
     messageBusConnection.subscribe(ProgressManagerListener.TOPIC, new WorkDoneProgressReporter());
@@ -54,14 +59,6 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
   public CompletableFuture<InitializeResult> initialize(@NotNull InitializeParams params) {
     return CompletableFuture.supplyAsync(() -> {
       final var workspaceFolders = params.getWorkspaceFolders();
-      var oldProject = project;
-      if(oldProject != null) {
-        if(oldProject.isOpen()) {
-          LOG.info("Closing old project: " + oldProject);
-          ProjectService.getInstance().closeProject(oldProject);
-        }
-        project = null;
-      }
 
       if (workspaceFolders == null) {
         return new InitializeResult(new ServerCapabilities());
@@ -70,10 +67,15 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
       //   // todo how about multiple folders
       final var projectRoot = LspPath.fromLspUri(workspaceFolders.get(0).getUri());
 
+      if (workspaceRoot != null) {
+        ProjectSessionRegistry.getInstance().releaseProject(workspaceRoot);
+      }
+      workspaceRoot = projectRoot;
+
       Metrics.run(() -> "initialize: " + projectRoot, () -> {
 
         LOG.info("Opening project: " + projectRoot);
-        project = ProjectService.getInstance().resolveProjectFromRoot(projectRoot);
+        project = ProjectSessionRegistry.getInstance().openOrClaimProject(projectRoot);
 
         assert client != null;
         LspContext.createContext(project, client, params.getCapabilities());
@@ -168,13 +170,16 @@ it.setCallHierarchyProvider(true);
     stop();
   }
 
-  public void stop() {
+  public synchronized void stop() {
+    if (stopped) return;
+    stopped = true;
     messageBusConnection.disconnect();
 
-    if (project != null) {
-      ProjectService.getInstance().closeProject(project);
-      this.project = null;
+    if (workspaceRoot != null) {
+      ProjectSessionRegistry.getInstance().releaseProject(workspaceRoot);
+      workspaceRoot = null;
     }
+    this.project = null;
   }
 
   @Override
