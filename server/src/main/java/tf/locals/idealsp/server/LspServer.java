@@ -2,11 +2,13 @@ package tf.locals.idealsp.server;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManagerListener;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.util.messages.MessageBusConnection;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
@@ -23,6 +25,7 @@ import tf.locals.idealsp.server.dataflow.DataFlowToCommand;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,8 +87,37 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
         LOG.info("LSP was initialized. Project: " + project);
       });
 
-      return new InitializeResult(defaultServerCapabilities());
+      var capabilities = defaultServerCapabilities();
+      capabilities.setExperimental(buildStatus(project));
+      return new InitializeResult(capabilities);
     });
+  }
+
+  @NotNull
+  private Map<String, Object> buildStatus(@Nullable Project p) {
+    var status = new HashMap<String, Object>();
+    status.put("server", "idealsp");
+    if (p == null || p.isDisposed()) {
+      status.put("ready", false);
+      return status;
+    }
+    try {
+      status.put("ready", true);
+      status.put("projectOpen", p.isOpen());
+      status.put("projectInitialized", p.isInitialized());
+      status.put("dumbMode", DumbService.isDumb(p));
+      var mods = ModuleManager.getInstance(p).getModules();
+      status.put("moduleCount", mods.length);
+      status.put("contentRootCount",
+          Arrays.stream(mods)
+              .mapToInt(m -> ModuleRootManager.getInstance(m).getContentRoots().length)
+              .sum());
+      status.put("workspaceRoot", workspaceRoot != null ? workspaceRoot.toString() : null);
+    } catch (Exception e) {
+      LOG.warn("Failed to build status for initialize response", e);
+      status.put("statusError", e.getMessage());
+    }
+    return status;
   }
 
   @NotNull

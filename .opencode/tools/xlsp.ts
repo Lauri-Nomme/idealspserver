@@ -1,10 +1,10 @@
 import { tool } from "@opencode-ai/plugin"
 
 export default tool({
-  description: "Symbol-first LSP operations — find definitions, references, hover, diagnostics, call hierarchy, etc. without needing line/column coordinates.",
+  description: "Symbol-first LSP operations — find definitions, references, hover, diagnostics, call hierarchy, etc. without needing line/column coordinates. Use 'status' to check server/project health.",
   args: {
     operation: tool.schema
-      .enum(["define", "references", "hover", "complete", "symbols", "diagnostics", "implement", "type-def", "signature", "actions", "calls", "dataflow"])
+      .enum(["status", "define", "references", "hover", "complete", "symbols", "diagnostics", "implement", "type-def", "signature", "actions", "calls", "dataflow"])
       .describe("LSP operation to perform"),
     symbol: tool.schema
       .string()
