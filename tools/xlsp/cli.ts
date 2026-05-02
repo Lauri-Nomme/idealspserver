@@ -133,6 +133,18 @@ async function main() {
     }
 
     switch (operation) {
+      case "status":
+      case "st": {
+        const info: any = { success: true, operation: "status" }
+        const exp = (initResp.result as any)?.capabilities?.experimental
+            || (initResp.result as any)?.experimental
+        if (exp) {
+          info.serverStatus = exp
+        }
+        printJson(info)
+        break
+      }
+
       case "define":
       case "def": {
         const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
@@ -253,7 +265,7 @@ async function main() {
       }
 
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow"))
     }
 
     client.sendNotification("shutdown", {})

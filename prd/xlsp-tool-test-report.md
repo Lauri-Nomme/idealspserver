@@ -3,8 +3,17 @@
 Date: 2026-05-02
 Tester: OpenCode Agent
 Tool under test: `.opencode/tools/xlsp.ts` (invoked as the `xlsp` LSP operations tool)
-LSP server: IntelliJ IDEA 2026.1 (PID 3718195), TCP on port 8989
+LSP server: IntelliJ IDEA 2026.1, TCP on port 8989
 Workspace: `/vokk/home/lauri/dev/idealspserver/git` (IntelliJ Platform Plugin — Java 21, Gradle)
+
+---
+
+## 1. Test Runs
+
+### 1.1 Run 1: Before Session Keepalive (18:55 UTC)
+
+Server: Long-running IntelliJ instance (PID 3718195), no keepalive.
+Each xlsp call opens → operation → force-closes project in ~3s.
 
 ---
 
@@ -156,6 +165,8 @@ symbol: "server/src/main/java/tf/locals/idealsp/server/LspServer.java"
 
 ## 2. Results Summary
 
+### 2.1 Run 1: Before Keepalive (no session persistence)
+
 | Operation | Success | Count | Notes |
 |-----------|---------|-------|-------|
 | `diagnostics` | ✅ true | **562** | File, line, char, severity, message, source — fully populated |
@@ -172,9 +183,49 @@ symbol: "server/src/main/java/tf/locals/idealsp/server/LspServer.java"
 | `complete` | ✅ true | 0 | Same pattern |
 | `actions` | ✅ true | 0 | Same pattern |
 
-**Diagnostics is the standout winner** — 562 issues found with full fidelity (file path, exact line/char range, severity [error/warn/info/hint], message text, source).
+**Diagnostics is the standout winner** — 562 issues found with full fidelity.
+**All semantic operations return count=0** — project never reaches a loaded state.
 
-**All semantic operations return count=0** because the project's PSI tree is too broken for navigation features.
+### 2.2 Run 2: After Keepalive (session persistence + status reporting)
+
+Server: Fresh IntelliJ restart with `ProjectSessionRegistry` and extended `initialize()` response.
+Project is kept alive across xlsp invocations with 2h TTL.
+
+| Operation | Success | Count | Notes |
+|-----------|---------|-------|-------|
+| `status` | ✅ true | — | **NEW** — `ready:true, initialized:true, modules:2, contentRoots:2, dumbMode:false` |
+| `diagnostics` | ✅ true | **654** | File, line, char, severity, message, source — fully populated |
+| `define` | ✅ true | **1** | Class definition at LspServer.java:36:13 |
+| `references` | ✅ true | **5** | Cross-file: LspServerTestBase.java, LspServerRunnerBase.java |
+| `hover` | ✅ true | **1** | Markdown text: "LspServer" |
+| `implement` | ✅ true | **1** | Self-referencing (class is its own implementation) |
+| `complete` | ✅ true | **11** | Keywords + class name completions |
+| `dataflow` | ✅ true | **1** | Self-referencing dataflow location |
+| `symbols` (no file) | ✅ true | 0 | workspace/symbol still returns empty |
+| `symbols` (file) | ✅ true | 0 | documentSymbol still returns empty |
+| `calls` | ✅ true | 0 | Call hierarchy still returns empty |
+| `actions` | ✅ true | 0 | Code actions still returns empty |
+| `type-def` | N/A | — | Not retested |
+| `signature` | N/A | — | Not retested |
+
+**Key improvement**: 5 of 13 operations went from 0 results to real, meaningful data. The keepalive allows the project to reach `COMPONENT_LOADED` state, resolving IntelliJ's module model and enabling PSI-based navigation.
+
+### 2.3 `status` Operation Output
+
+```json
+{
+  "server": "idealsp",
+  "ready": true,
+  "projectOpen": true,
+  "projectInitialized": true,
+  "dumbMode": false,
+  "moduleCount": 2,
+  "contentRootCount": 2,
+  "workspaceRoot": "file:///vokk/home/lauri/dev/idealspserver/git"
+}
+```
+
+This confirms the project is fully loaded with 2 modules and 2 content roots. The status is delivered via `ServerCapabilities.experimental` in the `initialize` response, and the xlsp CLI reads it from `capabilities.experimental` for the `status` operation.
 
 ---
 
@@ -296,54 +347,25 @@ None of these are available when the project is `COMPONENT_CREATED` and the Grad
 
 ---
 
-## 5. Proposed: xlsp Status Operation
+## 5. Status Operation — Implemented
 
-It would be highly valuable to add a **`status` operation** to the xlsp tool that reports:
+The `status` operation is now implemented end-to-end:
 
+1. **Server-side** (`LspServer.buildStatus()`): Populates `ServerCapabilities.experimental` in the `initialize` response with: server name, project readiness (open/initialized), dumb mode status, module count, content root count, and workspace root.
+2. **CLI** (`cli.ts`): Extracts `capabilities.experimental` from the initialize response and outputs it when the `status` operation is requested.
+3. **OpenCode tool** (`.opencode/tools/xlsp.ts`): `status` added to the operation enum.
+
+Example usage via OpenCode tool:
 ```
-operation: status
-symbol: (not used)
-```
-
-Proposed output:
-
-```json
-{
-  "success": true,
-  "operation": "status",
-  "server": {
-    "version": "IntelliJ IDEA 2026.1",
-    "uptime": "1d 4h 23m",
-    "port": 8989
-  },
-  "project": {
-    "name": "git",
-    "state": "COMPONENT_CREATED",
-    "initialized": false,
-    "dumb_mode": false,
-    "modules": 0,
-    "source_roots": 0,
-    "gradle_import": "pending",
-    "indexing": {
-      "in_progress": false,
-      "progress_pct": null
-    }
-  },
-  "diagnostics_backlog": 3,
-  "active_sessions": 1
-}
+xlsp operation="status" symbol=""
+→ {"serverStatus": {"ready":true, "dumbMode":false, ...}}
 ```
 
-This would let users (and automated tooling) immediately understand:
+This lets users (and automated tooling) immediately understand:
 - Is the project loaded and ready?
-- Is indexing still running?
-- Has Gradle/Maven finished importing?
-- Are there queued/pending diagnostics?
-
-Implementation approach:
-- The LSP server already tracks `project.isInitialized()` and `DumbModeListener` state
-- The `initialize` response could be extended to include project state in `InitializeResult`
-- Or a custom `ideals/status` JSON-RPC method could be added to `IdeaLspServer`
+- Is indexing still running? (dumbMode)
+- How many modules/source roots are configured?
+- What workspace is the server using?
 
 ---
 
@@ -368,11 +390,11 @@ Implementation approach:
 
 ### Recommended Priority Fixes
 
-| Priority | Change | Effort |
-|----------|--------|--------|
-| **P0** | Add `--wait` flag support to `.opencode/tools/xlsp.ts` | 1 line |
-| **P1** | Add `--context` and `--severity` flag support | 2 lines |
-| **P2** | Add `status` operation (server-side + CLI + tool def) | Medium |
-| **P3** | Add LSP request/response logging in `LspServer` | Small |
-| **P3** | Add project readiness WARN log in `MyTextDocumentService` | Small |
-| **P4** | Connection pooling / persistent session in xlsp client | Large |
+| Priority | Change | Effort | Status |
+|----------|--------|--------|--------|
+| **P0** | Add `--wait` flag support to `.opencode/tools/xlsp.ts` | 1 line | Not needed — keepalive solves indexing |
+| **P1** | Add `--context` and `--severity` flag support | 2 lines | Open |
+| **P2** | Add `status` operation (server-side + CLI + tool def) | Medium | ✅ Done |
+| **P3** | Add LSP request/response logging in `LspServer` | Small | Open |
+| **P3** | Add project readiness WARN log in `MyTextDocumentService` | Small | Open |
+| **P4** | Connection pooling / persistent session in xlsp client | Large | ✅ Done (server-side keepalive) |
