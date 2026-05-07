@@ -307,15 +307,20 @@ it.setCallHierarchyProvider(true);
       }
       var path = LspPath.fromLspUri(params.getTextDocument().getUri());
       return CompletableFuture.supplyAsync(() -> {
-        var psiFile = ApplicationManager.getApplication().runReadAction(
-            (com.intellij.openapi.util.Computable<com.intellij.psi.PsiFile>) () ->
-                com.intellij.psi.PsiManager.getInstance(project)
-                    .findFile(path.findVirtualFile()));
-        if (psiFile == null) {
-          LOG.warn("inspectionRunByName: file not found: " + path);
-          return List.<org.eclipse.lsp4j.Diagnostic>of();
-        }
-        return project.getService(InspectionService.class).runByName(psiFile, params.getName());
+        return ApplicationManager.getApplication().runReadAction(
+            (com.intellij.openapi.util.Computable<List<org.eclipse.lsp4j.Diagnostic>>) () -> {
+              if (com.intellij.openapi.project.DumbService.isDumb(project)) {
+                LOG.warn("inspectionRunByName: project is in dumb mode, returning empty");
+                return List.<org.eclipse.lsp4j.Diagnostic>of();
+              }
+              var psiFile = com.intellij.psi.PsiManager.getInstance(project)
+                      .findFile(path.findVirtualFile());
+              if (psiFile == null) {
+                LOG.warn("inspectionRunByName: file not found: " + path);
+                return List.<org.eclipse.lsp4j.Diagnostic>of();
+              }
+              return project.getService(InspectionService.class).runByName(psiFile, params.getName());
+            });
       });
     } catch (Exception e) {
       LOG.error("inspectionRunByName() failed", e);

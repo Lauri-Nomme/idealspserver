@@ -748,13 +748,13 @@ def test_all():
     resp = send_and_recv(
         sock,
         "$/inspection/runByName",
-        {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "UNUSED_IMPORT"},
+        {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "unused"},
         26,
     )
     if resp and "result" in resp:
         diagnostics = resp["result"]
         if isinstance(diagnostics, list):
-            print(f"26. Inspection runByName (UNUSED_IMPORT): OK - Found {len(diagnostics)} diagnostics")
+            print(f"26. Inspection runByName (unused): OK - Found {len(diagnostics)} diagnostics")
             for d in diagnostics[:3]:
                 sev = {1: "Error", 2: "Warn", 3: "Info", 4: "Hint"}.get(d.get("severity"), "?")
                 msg = (d.get("message") or "")[:60]
@@ -763,7 +763,7 @@ def test_all():
             print(f"26. Inspection runByName: FAILED - unexpected format")
     else:
         err = resp.get("error") if resp else None
-        print(f"26. Inspection runByName (UNUSED_IMPORT): FAILED (error={err})")
+        print(f"26. Inspection runByName (unused): FAILED (error={err})")
 
     # Test inspection runByName with non-existent name
     resp = send_and_recv(
