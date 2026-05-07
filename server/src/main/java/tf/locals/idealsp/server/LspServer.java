@@ -22,6 +22,9 @@ import tf.locals.idealsp.server.dataflow.DataFlowFromCommand;
 import tf.locals.idealsp.server.dataflow.DataFlowLocation;
 import tf.locals.idealsp.server.dataflow.DataFlowParams;
 import tf.locals.idealsp.server.dataflow.DataFlowToCommand;
+import tf.locals.idealsp.server.inspections.InspectionInfo;
+import tf.locals.idealsp.server.inspections.InspectionListParams;
+import tf.locals.idealsp.server.inspections.InspectionService;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -275,6 +278,21 @@ it.setCallHierarchyProvider(true);
           .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
     } catch (Exception e) {
       LOG.error("dataFlowTo() failed", e);
+      return CompletableFuture.completedFuture(List.of());
+    }
+  }
+
+  @Override
+  public CompletableFuture<List<InspectionInfo>> inspectionList(@NotNull InspectionListParams params) {
+    try {
+      if (project == null) {
+        LOG.warn("inspectionList() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(List.of());
+      }
+      return CompletableFuture.supplyAsync(() ->
+          project.getService(InspectionService.class).listInspections(params.getQuery()));
+    } catch (Exception e) {
+      LOG.error("inspectionList() failed", e);
       return CompletableFuture.completedFuture(List.of());
     }
   }
