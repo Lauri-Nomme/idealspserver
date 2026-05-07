@@ -1,20 +1,24 @@
 package tf.locals.idealsp.server.inspections;
 
-import com.intellij.analysis.AnalysisScope;
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
+import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
+import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl;
+import com.intellij.codeInsight.multiverse.CodeInsightContextUtil;
 import com.intellij.codeInspection.InspectionEP;
-import com.intellij.codeInspection.InspectionEngine;
-import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.InspectionProfile;
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.codeInspection.ProblemsHolder;
-import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
-import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiFile;
 import org.eclipse.lsp4j.Diagnostic;
@@ -33,17 +37,10 @@ final public class InspectionService {
 
     private static final Logger LOG = Logger.getInstance(InspectionService.class);
 
-    private static final Map<String, DiagnosticSeverity> typeToSeverity = Map.ofEntries(
-            Map.entry("ERROR", DiagnosticSeverity.Error),
-            Map.entry("GENERIC_ERROR", DiagnosticSeverity.Error),
-            Map.entry("LIKE_UNKNOWN_SYMBOL", DiagnosticSeverity.Error),
-            Map.entry("GENERIC_ERROR_OR_WARNING", DiagnosticSeverity.Warning),
-            Map.entry("WARNING", DiagnosticSeverity.Warning),
-            Map.entry("WEAK_WARNING", DiagnosticSeverity.Warning),
-            Map.entry("LIKE_DEPRECATED", DiagnosticSeverity.Warning),
-            Map.entry("LIKE_UNUSED_SYMBOL", DiagnosticSeverity.Warning),
-            Map.entry("LIKE_MARKED_FOR_REMOVAL", DiagnosticSeverity.Warning),
-            Map.entry("POSSIBLE_PROBLEM", DiagnosticSeverity.Warning)
+    private static final Map<HighlightSeverity, DiagnosticSeverity> severityMap = Map.of(
+            HighlightSeverity.INFORMATION, DiagnosticSeverity.Information,
+            HighlightSeverity.WARNING, DiagnosticSeverity.Warning,
+            HighlightSeverity.ERROR, DiagnosticSeverity.Error
     );
 
     @NotNull
@@ -65,17 +62,13 @@ final public class InspectionService {
 
             for (var ep : eps) {
                 var shortName = ep.shortName;
-                if (shortName == null || shortName.isEmpty() || !seen.add(shortName)) {
-                    continue;
-                }
+                if (shortName == null || shortName.isEmpty() || !seen.add(shortName)) continue;
                 var displayName = ep.displayName;
 
                 if (!query.isEmpty()) {
                     var matchesShortName = shortName.toLowerCase().contains(lowerQuery);
                     var matchesDisplayName = displayName != null && displayName.toLowerCase().contains(lowerQuery);
-                    if (!matchesShortName && !matchesDisplayName) {
-                        continue;
-                    }
+                    if (!matchesShortName && !matchesDisplayName) continue;
                 }
 
                 try {
@@ -86,26 +79,17 @@ final public class InspectionService {
                     } catch (Exception e) {
                         enabled = ep.enabledByDefault;
                     }
-
                     String group = ep.groupDisplayName;
-                    if (group == null || group.isEmpty()) {
-                        group = ep.groupPath;
-                    }
-
+                    if (group == null || group.isEmpty()) group = ep.groupPath;
                     String desc = "";
                     try {
                         var instance = ep.getInstance();
                         desc = instance != null ? instance.getStaticDescription() : "";
-                    } catch (Exception ignored) {
-                    }
-
-                    result.add(new InspectionInfo(
-                            shortName,
+                    } catch (Exception ignored) {}
+                    result.add(new InspectionInfo(shortName,
                             displayName != null ? displayName : shortName,
-                            group != null ? group : "",
-                            enabled,
-                            desc != null ? desc : ""
-                    ));
+                            group != null ? group : "", enabled,
+                            desc != null ? desc : ""));
                 } catch (Exception e) {
                     LOG.warn("Failed to load info for inspection: " + shortName, e);
                 }
@@ -116,90 +100,62 @@ final public class InspectionService {
         });
     }
 
+    @SuppressWarnings("UnstableApiUsage")
     @NotNull
     public List<Diagnostic> runByName(@NotNull PsiFile psiFile, @NotNull String name) {
-        InspectionToolWrapper<?, ?> wrapper = lookupWrapper(name);
-        if (wrapper == null) {
-            LOG.warn("runByName: inspection not found: " + name);
-            return List.of();
-        }
+        Thread.interrupted();
 
-        InspectionManager manager = InspectionManager.getInstance(project);
-        GlobalInspectionContextBase context = (GlobalInspectionContextBase) manager.createNewGlobalContext(false);
-        context.setCurrentScope(new AnalysisScope(psiFile));
-
-        List<ProblemDescriptor> descriptors;
-        try {
-            if (wrapper.getTool() instanceof com.intellij.codeInspection.GlobalSimpleInspectionTool simple) {
-                ProblemsHolder holder = new ProblemsHolder(manager, psiFile, false);
-                simple.checkFile(psiFile, manager, holder, context, null);
-                descriptors = new ArrayList<>(holder.getResults());
-            } else {
-                descriptors = ApplicationManager.getApplication()
-                        .runReadAction((Computable<List<ProblemDescriptor>>) () ->
-                                InspectionEngine.runInspectionOnFile(psiFile, wrapper, context));
-            }
-        } catch (Exception e) {
-            LOG.warn("runByName: error running " + name + ": " + e.getMessage(), e);
-            return List.of();
-        }
-
-        LOG.info("runByName: " + name + " produced " + descriptors.size() + " descriptors");
-        return toDiagnostics(descriptors, psiFile);
-    }
-
-    private @org.jetbrains.annotations.Nullable InspectionToolWrapper<?, ?> lookupWrapper(@NotNull String name) {
-        @SuppressWarnings("removal")
-        InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
-        InspectionToolWrapper<?, ?> tool = profile.getInspectionTool(name, project);
-        if (tool != null) {
-            LOG.info("lookupWrapper: found " + name + " via profile as " + tool.getClass().getName());
-            return tool;
-        }
-
-        for (var ep : InspectionEP.GLOBAL_INSPECTION.getExtensionList()) {
-            if (name.equals(ep.shortName)) {
-                var instance = ep.getInstance();
-                LOG.info("lookupWrapper: found " + name + " via EP, instance="
-                        + (instance != null ? instance.getClass().getName() : "null"));
-                if (instance instanceof com.intellij.codeInspection.LocalInspectionTool local) {
-                    return new com.intellij.codeInspection.ex.LocalInspectionToolWrapper(local);
-                } else if (instance instanceof com.intellij.codeInspection.GlobalInspectionTool global) {
-                    return new com.intellij.codeInspection.ex.GlobalInspectionToolWrapper(global);
-                }
-            }
-        }
-        return null;
-    }
-
-    @NotNull
-    private List<Diagnostic> toDiagnostics(@NotNull List<ProblemDescriptor> descriptors, @NotNull PsiFile psiFile) {
         var doc = FileDocumentManager.getInstance().getDocument(psiFile.getVirtualFile());
-        if (doc == null) return List.of();
+        if (doc == null) {
+            LOG.warn("runByName: no document for " + psiFile.getVirtualFile());
+            return List.of();
+        }
 
-        var result = new ArrayList<Diagnostic>();
-        for (var d : descriptors) {
-            var element = d.getPsiElement();
-            if (element == null || !element.isValid()) continue;
+        var project = psiFile.getProject();
+        var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
+        var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
+        var range = ProperTextRange.create(0, doc.getTextLength());
 
-            var file = element.getContainingFile();
-            if (file == null) continue;
+        var progress = new DaemonProgressIndicator();
+        progress.start();
 
-            var textRange = element.getTextRange();
-            var startLine = doc.getLineNumber(textRange.getStartOffset());
-            var startCol = textRange.getStartOffset() - doc.getLineStartOffset(startLine);
-            var endLine = doc.getLineNumber(textRange.getEndOffset());
-            var endCol = textRange.getEndOffset() - doc.getLineStartOffset(endLine);
+        var highlights = ProgressManager.getInstance().runProcess(() -> {
+            var result = new ArrayList<HighlightInfo>();
+            HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+                try {
+                    var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+                    if (all != null) result.addAll(all);
+                } catch (Exception ex) {
+                    LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
+                }
+            });
+            return result;
+        }, progress);
 
-            var sevKey = d.getHighlightType().name();
-            var severity = typeToSeverity.getOrDefault(sevKey, DiagnosticSeverity.Information);
+        var matched = 0;
+        var diags = new ArrayList<Diagnostic>();
+        for (var info : highlights) {
+            var toolId = info.getInspectionToolId();
+            if (toolId == null || !toolId.equals(name)) continue;
+            if (info.getDescription() == null) continue;
+
+            var infoRange = new com.intellij.openapi.util.TextRange(info.startOffset, info.endOffset);
+            var startLine = doc.getLineNumber(infoRange.getStartOffset());
+            var startCol = infoRange.getStartOffset() - doc.getLineStartOffset(startLine);
+            var endLine = doc.getLineNumber(infoRange.getEndOffset());
+            var endCol = infoRange.getEndOffset() - doc.getLineStartOffset(endLine);
+
+            var severity = severityMap.getOrDefault(info.getSeverity(), DiagnosticSeverity.Hint);
             var diag = new Diagnostic(
                     new Range(new Position(startLine, startCol), new Position(endLine, endCol)),
-                    d.getDescriptionTemplate()
+                    info.getDescription()
             );
             diag.setSeverity(severity);
-            result.add(diag);
+            diag.setCode(toolId);
+            diags.add(diag);
+            matched++;
         }
-        return result;
+        LOG.info("runByName: " + name + " filtered " + matched + " of " + highlights.size() + " highlights");
+        return diags;
     }
 }
