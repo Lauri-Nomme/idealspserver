@@ -13,6 +13,7 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
+import { listInspections } from "./operations/inspect"
 
 interface Output {
   success: boolean
@@ -264,8 +265,22 @@ async function main() {
         break
       }
 
+      case "inspect-list":
+      case "insp": {
+        const query = symbol || ""
+        const results = await listInspections(client, query)
+        printJson(ok(operation, results, query))
+        break
+      }
+
+      case "inspect":
+      case "insp-run": {
+        printJson(fail(operation, "run by name not yet implemented", "Use 'xlsp inspect-list' to discover available inspections"))
+        break
+      }
+
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow, inspect-list"))
     }
 
     client.sendNotification("shutdown", {})
