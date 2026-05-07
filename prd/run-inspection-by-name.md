@@ -2,18 +2,20 @@
 
 ## Status
 
-**In progress.** Discovery is implemented (`$/inspection/list`). Next: `$/inspection/runByName` (targeted inspection execution).
+**Completed.** Both `$/inspection/list` and `$/inspection/runByName` implemented.
 
 ### Completed
 - `$/inspection/list` LSP extension — list/search all registered inspections by shortName/displayName
-- `InspectionService` (Java) — queries `InspectionEP.GLOBAL_INSPECTION` extension points
-- `InspectionInfo` POJO with shortName, displayName, group, enabled, description
-- Unit tests (4 tests, all pass)
-- Comprehensive Python integration test (tests 23-25)
+- `$/inspection/runByName` LSP extension — run a single inspection on a file, returns LSP Diagnostics
+- `InspectionService` (Java) — `listInspections(query)` + `runByName(psiFile, name)`
+- Handles: LocalInspectionTool, GlobalSimpleInspectionTool (with ProblemsHolder workaround), GlobalInspectionTool
+- `InspectionInfo` + `InspectionRunByNameParams` POJOs
+- Unit tests (6 pass) + Comprehensive Python tests (tests 23-27)
+- xlsp CLI: `inspect-list` and `inspect` operations
+- opencode tool wrapper updated
 
-### Remaining
-- `$/inspection/runByName` — run a specific inspection on a file
-- xlsp tool: `inspect <name>` and `inspect-list` operations
+### Known limitation
+Single-file inspection via `runInspectionOnFile` requires proper PSI/JDK context. Results may be empty if the project doesn't have full SDK classpath configured. The full daemon pass (`runMainPasses`) handles this better but runs all inspections.
 
 ---
 
