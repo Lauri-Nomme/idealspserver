@@ -1,4 +1,5 @@
 import { LspClient } from "../lsp-client"
+import { resolve } from "node:path"
 
 export async function listInspections(
   client: LspClient,
@@ -19,9 +20,11 @@ export async function listInspections(
 export async function runInspection(
   client: LspClient,
   file: string,
-  name: string
+  name: string,
+  workRoot: string
 ): Promise<any[]> {
-  const uri = file.startsWith("file://") ? file : `file://${file}`
+  const absPath = file.startsWith("/") ? file : resolve(workRoot, file)
+  const uri = `file://${absPath}`
   const resp = await client.sendRequest("$/inspection/runByName", {
     textDocument: { uri },
     name,

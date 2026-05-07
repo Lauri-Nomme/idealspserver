@@ -277,7 +277,7 @@ async function main() {
       case "insp-run": {
         if (!file) { printJson(fail(operation, "file required", "Specify file with 'in <path>' after the inspection name")); return }
         if (!symbol) { printJson(fail(operation, "inspection name required", "Use 'xlsp inspect-list' to discover available inspections")); return }
-        const results = await runInspection(client, file, symbol)
+        const results = await runInspection(client, file, symbol, wsRoot)
         if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file))
         break
