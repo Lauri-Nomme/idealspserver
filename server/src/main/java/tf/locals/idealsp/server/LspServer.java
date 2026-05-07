@@ -309,10 +309,6 @@ it.setCallHierarchyProvider(true);
       return CompletableFuture.supplyAsync(() -> {
         return ApplicationManager.getApplication().runReadAction(
             (com.intellij.openapi.util.Computable<List<org.eclipse.lsp4j.Diagnostic>>) () -> {
-              if (com.intellij.openapi.project.DumbService.isDumb(project)) {
-                LOG.warn("inspectionRunByName: project is in dumb mode, returning empty");
-                return List.<org.eclipse.lsp4j.Diagnostic>of();
-              }
               var psiFile = com.intellij.psi.PsiManager.getInstance(project)
                       .findFile(path.findVirtualFile());
               if (psiFile == null) {
