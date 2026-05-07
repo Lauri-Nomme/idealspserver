@@ -704,6 +704,45 @@ def test_all():
     else:
         print(f"22. DataFlowTo: FAILED")
 
+    # Test inspection list — list all inspections
+    resp = send_and_recv(sock, "$/inspection/list", {"query": ""}, 23)
+    if resp and "result" in resp and resp["result"]:
+        inspections = resp["result"]
+        print(f"23. Inspection list (all): OK - Found {len(inspections)} inspections")
+        first_three = sorted(inspections, key=lambda i: i.get("shortName", ""))[:3]
+        for i in first_three:
+            print(f"    - {i.get('shortName')}: {i.get('displayName', '')[:40]}")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"23. Inspection list (all): FAILED (error={err})")
+
+    # Test inspection list — search by query
+    resp = send_and_recv(sock, "$/inspection/list", {"query": "unused"}, 24)
+    if resp and "result" in resp and resp["result"]:
+        inspections = resp["result"]
+        print(f"24. Inspection list (search 'unused'): OK - Found {len(inspections)} inspections")
+        for i in inspections[:3]:
+            print(f"    - {i.get('shortName')}: {i.get('displayName', '')[:40]}")
+        if len(inspections) > 0:
+            all_match = all("unused" in (i.get("shortName", "") + i.get("displayName", "")).lower()
+                           for i in inspections)
+            print(f"    - All results match 'unused': {all_match}")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"24. Inspection list (search): FAILED (error={err})")
+
+    # Test inspection list — non-existent query
+    resp = send_and_recv(sock, "$/inspection/list", {"query": "zzzthisdoesnotexist"}, 25)
+    if resp and "result" in resp:
+        inspections = resp["result"]
+        if isinstance(inspections, list) and len(inspections) == 0:
+            print(f"25. Inspection list (non-existent): OK - Got empty list as expected")
+        else:
+            print(f"25. Inspection list (non-existent): UNEXPECTED - Got {len(inspections) if isinstance(inspections, list) else type(inspections).__name__}")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"25. Inspection list (non-existent): FAILED (error={err})")
+
     sock.close()
     print("\n=== All tests completed ===")
 

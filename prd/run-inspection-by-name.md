@@ -2,7 +2,18 @@
 
 ## Status
 
-**Not yet scoped** in any .md files. No code exists to run a specific IDEA inspection by name — current diagnostics run ALL inspections via `DaemonCodeAnalyzerEx.runMainPasses()`.
+**In progress.** Discovery is implemented (`$/inspection/list`). Next: `$/inspection/runByName` (targeted inspection execution).
+
+### Completed
+- `$/inspection/list` LSP extension — list/search all registered inspections by shortName/displayName
+- `InspectionService` (Java) — queries `InspectionEP.GLOBAL_INSPECTION` extension points
+- `InspectionInfo` POJO with shortName, displayName, group, enabled, description
+- Unit tests (4 tests, all pass)
+- Comprehensive Python integration test (tests 23-25)
+
+### Remaining
+- `$/inspection/runByName` — run a specific inspection on a file
+- xlsp tool: `inspect <name>` and `inspect-list` operations
 
 ---
 
