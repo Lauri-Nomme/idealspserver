@@ -24,6 +24,7 @@ import tf.locals.idealsp.server.dataflow.DataFlowParams;
 import tf.locals.idealsp.server.dataflow.DataFlowToCommand;
 import tf.locals.idealsp.server.inspections.InspectionInfo;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
+import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
 import tf.locals.idealsp.server.inspections.InspectionService;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
@@ -293,6 +294,31 @@ it.setCallHierarchyProvider(true);
           project.getService(InspectionService.class).listInspections(params.getQuery()));
     } catch (Exception e) {
       LOG.error("inspectionList() failed", e);
+      return CompletableFuture.completedFuture(List.of());
+    }
+  }
+
+  @Override
+  public CompletableFuture<List<org.eclipse.lsp4j.Diagnostic>> inspectionRunByName(@NotNull InspectionRunByNameParams params) {
+    try {
+      if (project == null) {
+        LOG.warn("inspectionRunByName() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(List.of());
+      }
+      var path = LspPath.fromLspUri(params.getTextDocument().getUri());
+      return CompletableFuture.supplyAsync(() -> {
+        var psiFile = ApplicationManager.getApplication().runReadAction(
+            (com.intellij.openapi.util.Computable<com.intellij.psi.PsiFile>) () ->
+                com.intellij.psi.PsiManager.getInstance(project)
+                    .findFile(path.findVirtualFile()));
+        if (psiFile == null) {
+          LOG.warn("inspectionRunByName: file not found: " + path);
+          return List.<org.eclipse.lsp4j.Diagnostic>of();
+        }
+        return project.getService(InspectionService.class).runByName(psiFile, params.getName());
+      });
+    } catch (Exception e) {
+      LOG.error("inspectionRunByName() failed", e);
       return CompletableFuture.completedFuture(List.of());
     }
   }

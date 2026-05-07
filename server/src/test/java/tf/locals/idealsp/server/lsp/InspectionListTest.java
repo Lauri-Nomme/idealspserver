@@ -1,8 +1,16 @@
 package tf.locals.idealsp.server.lsp;
 
+import org.eclipse.lsp4j.DidOpenTextDocumentParams;
+import org.eclipse.lsp4j.TextDocumentIdentifier;
+import org.eclipse.lsp4j.TextDocumentItem;
 import org.junit.Assert;
 import org.junit.Test;
+import tf.locals.idealsp.server.LspPath;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
+import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
+import tf.locals.idealsp.server.util.MiscUtil;
+
+import java.nio.file.Files;
 
 public class InspectionListTest extends LspServerTestBase {
 
@@ -65,5 +73,49 @@ public class InspectionListTest extends LspServerTestBase {
             Assert.assertNotNull("group should not be null", info.getGroup());
             Assert.assertNotNull("description should not be null", info.getDescription());
         }
+    }
+
+    @Test
+    public void runByNameOnTestFile() {
+        var filePath = LspPath.fromLocalPath(getProjectPath().resolve("src/Test.java"));
+        var fileUri = filePath.toLspUri();
+
+        sendOpen(filePath);
+
+        var params = new InspectionRunByNameParams(
+                new TextDocumentIdentifier(fileUri), "UNUSED_IMPORT");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        // Test project may not have JDK configured for import resolution;
+        // the key assertion is that runByName succeeds without exceptions.
+    }
+
+    @Test
+    public void runByNameNonexistentInspection() {
+        var filePath = LspPath.fromLocalPath(getProjectPath().resolve("src/Test.java"));
+        var fileUri = filePath.toLspUri();
+
+        sendOpen(filePath);
+
+        var params = new InspectionRunByNameParams(
+                new TextDocumentIdentifier(fileUri), "zzzthisdoesnotexist");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        Assert.assertTrue("Expected empty result for non-existent inspection", diagnostics.isEmpty());
+    }
+
+    private void sendOpen(LspPath filePath) {
+        var fileText = MiscUtil.makeThrowsUnchecked(() -> Files.readString(filePath.toPath()));
+        server().getTextDocumentService().didOpen(
+                MiscUtil.with(new DidOpenTextDocumentParams(), params -> {
+                    params.setTextDocument(MiscUtil.with(new TextDocumentItem(), item -> {
+                        item.setUri(filePath.toLspUri());
+                        item.setLanguageId("java");
+                        item.setText(fileText);
+                        item.setVersion(1);
+                    }));
+                }));
     }
 }

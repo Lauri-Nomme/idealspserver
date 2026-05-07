@@ -13,7 +13,7 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
-import { listInspections } from "./operations/inspect"
+import { listInspections, runInspection } from "./operations/inspect"
 
 interface Output {
   success: boolean
@@ -275,7 +275,11 @@ async function main() {
 
       case "inspect":
       case "insp-run": {
-        printJson(fail(operation, "run by name not yet implemented", "Use 'xlsp inspect-list' to discover available inspections"))
+        if (!file) { printJson(fail(operation, "file required", "Specify file with 'in <path>' after the inspection name")); return }
+        if (!symbol) { printJson(fail(operation, "inspection name required", "Use 'xlsp inspect-list' to discover available inspections")); return }
+        const results = await runInspection(client, file, symbol)
+        if (ctxLines) await addContext(results, ctxLines)
+        printJson(ok(operation, results, symbol, file))
         break
       }
 
