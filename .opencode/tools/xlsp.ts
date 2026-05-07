@@ -25,7 +25,7 @@ export default tool({
         "run",
         "tools/xlsp/cli.ts",
         args.operation,
-        args.symbol,
+        ...(args.symbol && args.symbol !== "undefined" ? [args.symbol] : []),
         ...(args.file ? ["in", args.file] : []),
         ...(args.dir ? ["--dir", args.dir] : []),
       ],
