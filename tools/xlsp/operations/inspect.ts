@@ -15,3 +15,37 @@ export async function listInspections(
     description: i.description,
   }))
 }
+
+export async function runInspection(
+  client: LspClient,
+  file: string,
+  name: string
+): Promise<any[]> {
+  const uri = file.startsWith("file://") ? file : `file://${file}`
+  const resp = await client.sendRequest("$/inspection/runByName", {
+    textDocument: { uri },
+    name,
+  }, 30_000)
+  const raw = resp?.result || []
+  if (!Array.isArray(raw)) return []
+  return raw.map((d: any) => ({
+    severity: severityName(d.severity),
+    message: d.message,
+    code: d.code,
+    line: d.range?.start?.line,
+    character: d.range?.start?.character,
+    endLine: d.range?.end?.line,
+    endCharacter: d.range?.end?.character,
+  }))
+}
+
+function severityName(n: number): string {
+  switch (n) {
+    case 1: return "error"
+    case 2: return "warning"
+    case 3: return "info"
+    case 4: return "hint"
+    default: return "unknown"
+  }
+}
+

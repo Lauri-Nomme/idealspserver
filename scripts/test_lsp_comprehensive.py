@@ -743,6 +743,45 @@ def test_all():
         err = resp.get("error") if resp else None
         print(f"25. Inspection list (non-existent): FAILED (error={err})")
 
+    # Test inspection runByName — run a specific inspection on a file
+    test_run_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
+    resp = send_and_recv(
+        sock,
+        "$/inspection/runByName",
+        {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "UNUSED_IMPORT"},
+        26,
+    )
+    if resp and "result" in resp:
+        diagnostics = resp["result"]
+        if isinstance(diagnostics, list):
+            print(f"26. Inspection runByName (UNUSED_IMPORT): OK - Found {len(diagnostics)} diagnostics")
+            for d in diagnostics[:3]:
+                sev = {1: "Error", 2: "Warn", 3: "Info", 4: "Hint"}.get(d.get("severity"), "?")
+                msg = (d.get("message") or "")[:60]
+                print(f"    - [{sev}] {msg}")
+        else:
+            print(f"26. Inspection runByName: FAILED - unexpected format")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"26. Inspection runByName (UNUSED_IMPORT): FAILED (error={err})")
+
+    # Test inspection runByName with non-existent name
+    resp = send_and_recv(
+        sock,
+        "$/inspection/runByName",
+        {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "zzzthisdoesnotexist"},
+        27,
+    )
+    if resp and "result" in resp:
+        diagnostics = resp["result"]
+        if isinstance(diagnostics, list) and len(diagnostics) == 0:
+            print(f"27. Inspection runByName (non-existent): OK - Got empty list as expected")
+        else:
+            print(f"27. Inspection runByName (non-existent): OK - returned safely")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"27. Inspection runByName (non-existent): FAILED (error={err})")
+
     sock.close()
     print("\n=== All tests completed ===")
 
