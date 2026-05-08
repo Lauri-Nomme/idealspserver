@@ -7,11 +7,7 @@ import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl;
 import com.intellij.codeInsight.multiverse.CodeInsightContextUtil;
 import com.intellij.codeInspection.InspectionEP;
 import com.intellij.codeInspection.InspectionProfile;
-import com.intellij.codeInspection.ex.GlobalInspectionToolWrapper;
-import com.intellij.codeInspection.ex.InspectionProfileImpl;
-import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.codeInspection.ex.InspectionToolsSupplier;
-import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
+import com.intellij.codeInspection.ex.*;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
@@ -99,7 +95,11 @@ final public class InspectionService {
     @SuppressWarnings("UnstableApiUsage")
     @NotNull
     public List<Diagnostic> runByName(@NotNull PsiFile psiFile, @NotNull String name) {
-        Thread.interrupted();
+        InspectionToolWrapper<?, ?> wrapper = lookupWrapper(name);
+        if (wrapper == null) {
+            LOG.warn("runByName: inspection not found: " + name);
+            return List.of();
+        }
 
         var doc = FileDocumentManager.getInstance().getDocument(psiFile.getVirtualFile());
         if (doc == null) {
@@ -107,7 +107,14 @@ final public class InspectionService {
             return List.of();
         }
 
-        var project = psiFile.getProject();
+        // Build a profile with only the requested tool
+        InspectionProfileImpl rootProfile = InspectionProfileManager.getInstance(project).getCurrentProfile();
+        var singleProfile = new InspectionProfileImpl(
+                wrapper.getDisplayName(),
+                new InspectionToolsSupplier.Simple(Collections.singletonList(wrapper)),
+                rootProfile);
+        singleProfile.enableTool(wrapper.getShortName(), project);
+
         var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
         var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
         var range = ProperTextRange.create(0, doc.getTextLength());
@@ -115,42 +122,64 @@ final public class InspectionService {
         var progress = new DaemonProgressIndicator();
         progress.start();
 
-        var highlights = ProgressManager.getInstance().runProcess(() -> {
-            var result = new ArrayList<HighlightInfo>();
-            HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
-                try {
-                    var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-                    if (all != null) result.addAll(all);
-                } catch (Exception ex) {
-                    LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
-                }
-            });
-            return result;
+        var diagsRef = new AtomicReference<List<Diagnostic>>();
+        ProgressManager.getInstance().runProcess(() -> {
+            InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
+                    __ -> new InspectionProfileWrapper(singleProfile),
+                    () -> {
+                        var highlights = new ArrayList<HighlightInfo>();
+                        HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+                            try {
+                                var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+                                if (all != null) highlights.addAll(all);
+                            } catch (Exception ex) {
+                                LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
+                            }
+                        });
+
+                        var diags = new ArrayList<Diagnostic>();
+                        for (var info : highlights) {
+                            var toolId = info.getInspectionToolId();
+                            if (toolId == null || !toolId.equals(name)) continue;
+                            if (info.getDescription() == null) continue;
+
+                            var sl = doc.getLineNumber(info.startOffset);
+                            var sc = info.startOffset - doc.getLineStartOffset(sl);
+                            var el = doc.getLineNumber(info.endOffset);
+                            var ec = info.endOffset - doc.getLineStartOffset(el);
+
+                            var severity = severityMap.getOrDefault(info.getSeverity(), DiagnosticSeverity.Hint);
+                            var diag = new Diagnostic(
+                                    new Range(new Position(sl, sc), new Position(el, ec)),
+                                    info.getDescription()
+                            );
+                            diag.setSeverity(severity);
+                            diag.setCode(toolId);
+                            diags.add(diag);
+                        }
+                        diagsRef.set(diags);
+                    });
         }, progress);
 
-        var matched = 0;
-        var diags = new ArrayList<Diagnostic>();
-        for (var info : highlights) {
-            var toolId = info.getInspectionToolId();
-            if (toolId == null || !toolId.equals(name)) continue;
-            if (info.getDescription() == null) continue;
+        var result = diagsRef.get() != null ? diagsRef.get() : List.<Diagnostic>of();
+        LOG.info("runByName: " + name + " found " + result.size() + " problems [single-tool profile]");
+        return result;
+    }
 
-            var sl = doc.getLineNumber(info.startOffset);
-            var sc = info.startOffset - doc.getLineStartOffset(sl);
-            var el = doc.getLineNumber(info.endOffset);
-            var ec = info.endOffset - doc.getLineStartOffset(el);
-
-            var severity = severityMap.getOrDefault(info.getSeverity(), DiagnosticSeverity.Hint);
-            var diag = new Diagnostic(
-                    new Range(new Position(sl, sc), new Position(el, ec)),
-                    info.getDescription()
-            );
-            diag.setSeverity(severity);
-            diag.setCode(toolId);
-            diags.add(diag);
-            matched++;
+    private @org.jetbrains.annotations.Nullable InspectionToolWrapper<?, ?> lookupWrapper(@NotNull String name) {
+        @SuppressWarnings("removal")
+        InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
+        InspectionToolWrapper<?, ?> tool = profile.getInspectionTool(name, project);
+        if (tool != null) return tool;
+        for (var ep : InspectionEP.GLOBAL_INSPECTION.getExtensionList()) {
+            if (name.equals(ep.shortName)) {
+                var instance = ep.getInstance();
+                if (instance instanceof com.intellij.codeInspection.LocalInspectionTool local)
+                    return new LocalInspectionToolWrapper(local);
+                if (instance instanceof com.intellij.codeInspection.GlobalInspectionTool global)
+                    return new GlobalInspectionToolWrapper(global);
+            }
         }
-        LOG.info("runByName: " + name + " matched " + matched + " of " + highlights.size() + " highlights");
-        return diags;
+        return null;
     }
 }
