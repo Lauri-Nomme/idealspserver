@@ -24,6 +24,7 @@ interface Output {
   hint?: string
   count?: number
   results?: any[]
+  tree?: any[]
 }
 
 function fail(operation: string, error: string, hint?: string): Output {
@@ -63,6 +64,15 @@ async function addContext(results: any[], contextLines: number): Promise<void> {
 function filterSeverity(results: any[], severity: string): any[] {
   if (!severity) return results
   return results.filter(r => r.severity === severity)
+}
+
+function countSymbols(nodes: any[]): number {
+  let count = 0
+  for (const node of nodes) {
+    count++
+    if (node.children) count += countSymbols(node.children)
+  }
+  return count
 }
 
 function parseArgs(argv: string[]) {
@@ -188,8 +198,21 @@ async function main() {
 
       case "symbols":
       case "sym": {
-        const results = await searchSymbols(client, symbol || "", file)
-        printJson(ok(operation, results, symbol, file))
+        const hasQuery = symbol.length > 0
+        const isFileOnly = !!file && !hasQuery
+        const tree = isFileOnly
+        const kind = args.kind as string
+        const visibility = args.visibility as string
+        const results = await searchSymbols(client, symbol || "", file, { kind, visibility, tree: tree as boolean })
+        if (tree && Array.isArray(results)) {
+          printJson({ success: true, operation, file, count: countSymbols(results), tree: results })
+        } else if (results && results.results) {
+          printJson(ok(operation, results.results, symbol, file))
+        } else if (Array.isArray(results)) {
+          printJson(ok(operation, results, symbol, file))
+        } else {
+          printJson({ success: true, operation, file, count: 0, results: [] })
+        }
         break
       }
 
