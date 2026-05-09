@@ -1,7 +1,6 @@
-import java.util.List;
-
 class Test {
-  public void foo() {
-    int x = 1 + 2;
+  public Test() {
+    int x;
+    x = 1 + 2   // error: no semicolon
   }
 }

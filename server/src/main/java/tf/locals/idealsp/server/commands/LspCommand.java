@@ -30,8 +30,7 @@ public abstract class LspCommand<R> {
     final var virtualFile = path.refreshAndFindVirtualFile();
     if (virtualFile == null) {
       LOG.info("File not found: " + path);
-      // todo mb need to throw excep
-      return CompletableFuture.completedFuture(null);
+      return CompletableFuture.failedFuture(new RuntimeException("File not found: " + path));
     }
 
     LOG.info(getMessageSupplier().get());

@@ -20,6 +20,7 @@ import tf.locals.idealsp.server.rename.RenameCommand;
 import tf.locals.idealsp.server.signature.SignatureHelpService;
 import tf.locals.idealsp.server.symbol.DocumentSymbolService;
 import tf.locals.idealsp.server.util.Metrics;
+import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -91,7 +92,7 @@ public class MyTextDocumentService implements TextDocumentService {
           .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
     } catch (Exception e) {
       LOG.error("definition() failed", e);
-      return CompletableFuture.completedFuture(Either.forRight(List.of()));
+      return MiscUtil.failed("definition", e.getMessage());
     }
   }
 
@@ -119,7 +120,7 @@ public class MyTextDocumentService implements TextDocumentService {
           .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
     } catch (Exception e) {
       LOG.error("references() failed", e);
-      return CompletableFuture.completedFuture(List.of());
+      return MiscUtil.failed("references", e.getMessage());
     }
   }
 
@@ -263,7 +264,7 @@ public class MyTextDocumentService implements TextDocumentService {
                     .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
         } catch (Exception e) {
             LOG.error("prepareCallHierarchy() failed", e);
-            return CompletableFuture.completedFuture(List.of());
+            return MiscUtil.failed("prepareCallHierarchy", e.getMessage());
         }
     }
 
@@ -282,7 +283,7 @@ public class MyTextDocumentService implements TextDocumentService {
             });
         } catch (Exception e) {
             LOG.error("callHierarchyIncomingCalls() failed", e);
-            return CompletableFuture.completedFuture(List.of());
+            return MiscUtil.failed("callHierarchyIncomingCalls", e.getMessage());
         }
     }
 
@@ -301,7 +302,7 @@ public class MyTextDocumentService implements TextDocumentService {
             });
         } catch (Exception e) {
             LOG.error("callHierarchyOutgoingCalls() failed", e);
-            return CompletableFuture.completedFuture(List.of());
+            return MiscUtil.failed("callHierarchyOutgoingCalls", e.getMessage());
         }
     }
 
@@ -317,7 +318,7 @@ public class MyTextDocumentService implements TextDocumentService {
                 .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
         } catch (Exception e) {
             LOG.error("rename() failed", e);
-            return CompletableFuture.completedFuture(new WorkspaceEdit());
+            return MiscUtil.failed("rename", e.getMessage());
         }
     }
 }

@@ -101,7 +101,7 @@ class DiagnosticsTask implements Runnable {
     try {
       client.createProgress(new WorkDoneProgressCreateParams(Either.forLeft(token))).get(5, java.util.concurrent.TimeUnit.SECONDS);
     } catch (Exception e) {
-      LOG.warn("Failed to create progress: " + e.getMessage());
+      LOG.warn("Failed to create progress", e);
     }
     final var progressBegin = new WorkDoneProgressBegin();
     progressBegin.setTitle("Analyzing file...");
@@ -119,7 +119,8 @@ class DiagnosticsTask implements Runnable {
       );
       client.publishDiagnostics(new PublishDiagnosticsParams(path.toLspUri(), diags));
     } catch (Exception e) {
-      LOG.warn("Error in DiagnosticsTask.run(): " + e.getMessage());
+      LOG.warn("Error in diagnostics pipeline", e);
+      client.publishDiagnostics(new PublishDiagnosticsParams(path.toLspUri(), List.of()));
     } finally {
       client.notifyProgress(new ProgressParams(Either.forLeft(token), Either.forLeft(new WorkDoneProgressEnd())));
     }
@@ -153,7 +154,7 @@ class DiagnosticsTask implements Runnable {
             result.addAll(highlights);
           }
         } catch (Exception ex) {
-          LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
+          LOG.warn("runMainPasses error", ex);
         }
       });
       return result;
