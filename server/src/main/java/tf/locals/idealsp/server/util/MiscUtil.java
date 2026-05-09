@@ -22,6 +22,7 @@ import tf.locals.idealsp.server.LspPath;
 
 import java.util.Arrays;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -234,5 +235,11 @@ public class MiscUtil {
 
   public static <T> T uncheckExceptions(@NotNull ThrowingSupplier<T> block) {
     return toSupplier(block).get();
+  }
+
+  @SuppressWarnings("unchecked")
+  public static <T> @NotNull CompletableFuture<T> failed(@NotNull String operation, @NotNull String detail) {
+    return (CompletableFuture<T>) CompletableFuture.failedFuture(
+        new RuntimeException("[" + operation + "] " + detail));
   }
 }

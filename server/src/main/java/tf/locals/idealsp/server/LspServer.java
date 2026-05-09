@@ -268,7 +268,7 @@ it.setCallHierarchyProvider(true);
           .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
     } catch (Exception e) {
       LOG.error("dataFlowFrom() failed", e);
-      return CompletableFuture.completedFuture(List.of());
+      return MiscUtil.failed("dataflowFrom", e.getMessage());
     }
   }
 
@@ -279,7 +279,7 @@ it.setCallHierarchyProvider(true);
           .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
     } catch (Exception e) {
       LOG.error("dataFlowTo() failed", e);
-      return CompletableFuture.completedFuture(List.of());
+      return MiscUtil.failed("dataflowTo", e.getMessage());
     }
   }
 
@@ -294,7 +294,7 @@ it.setCallHierarchyProvider(true);
           project.getService(InspectionService.class).listInspections(params.getQuery()));
     } catch (Exception e) {
       LOG.error("inspectionList() failed", e);
-      return CompletableFuture.completedFuture(List.of());
+      return MiscUtil.failed("inspectionList", e.getMessage());
     }
   }
 
@@ -320,7 +320,7 @@ it.setCallHierarchyProvider(true);
       });
     } catch (Exception e) {
       LOG.error("inspectionRunByName() failed", e);
-      return CompletableFuture.completedFuture(List.of());
+      return MiscUtil.failed("inspectionRunByName", e.getMessage());
     }
   }
 

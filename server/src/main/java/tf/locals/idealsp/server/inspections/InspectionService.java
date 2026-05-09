@@ -113,7 +113,13 @@ final public class InspectionService {
                 wrapper.getDisplayName(),
                 new InspectionToolsSupplier.Simple(Collections.singletonList(wrapper)),
                 rootProfile);
-        singleProfile.enableTool(wrapper.getShortName(), project);
+        try {
+            singleProfile.enableTool(wrapper.getShortName(), project);
+        } catch (Exception e) {
+            LOG.warn("runByName: profile setup failed for " + name + ", falling back to filter mode", e);
+            singleProfile = null;
+        }
+        final InspectionProfileImpl effectiveProfile = singleProfile;
 
         var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
         var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
@@ -124,46 +130,64 @@ final public class InspectionService {
 
         var diagsRef = new AtomicReference<List<Diagnostic>>();
         ProgressManager.getInstance().runProcess(() -> {
-            InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
-                    __ -> new InspectionProfileWrapper(singleProfile),
-                    () -> {
-                        var highlights = new ArrayList<HighlightInfo>();
-                        HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
-                            try {
-                                var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-                                if (all != null) highlights.addAll(all);
-                            } catch (Exception ex) {
-                                LOG.warn("runMainPasses error: " + ex.getMessage(), ex);
-                            }
-                        });
+            Runnable highlightRunner = () -> {
+                var highlights = new ArrayList<HighlightInfo>();
+                HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+                    try {
+                        var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+                        if (all != null) highlights.addAll(all);
+                    } catch (Exception ex) {
+                        LOG.warn("runMainPasses error", ex);
+                    }
+                });
+                diagsRef.set(extractDiagnostics(highlights, doc, name));
+            };
 
-                        var diags = new ArrayList<Diagnostic>();
-                        for (var info : highlights) {
-                            var toolId = info.getInspectionToolId();
-                            if (toolId == null || !toolId.equals(name)) continue;
-                            if (info.getDescription() == null) continue;
-
-                            var sl = doc.getLineNumber(info.startOffset);
-                            var sc = info.startOffset - doc.getLineStartOffset(sl);
-                            var el = doc.getLineNumber(info.endOffset);
-                            var ec = info.endOffset - doc.getLineStartOffset(el);
-
-                            var severity = severityMap.getOrDefault(info.getSeverity(), DiagnosticSeverity.Hint);
-                            var diag = new Diagnostic(
-                                    new Range(new Position(sl, sc), new Position(el, ec)),
-                                    info.getDescription()
-                            );
-                            diag.setSeverity(severity);
-                            diag.setCode(toolId);
-                            diags.add(diag);
-                        }
-                        diagsRef.set(diags);
-                    });
+            if (effectiveProfile != null) {
+                try {
+                    InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
+                            __ -> new InspectionProfileWrapper(effectiveProfile),
+                            highlightRunner);
+                } catch (Exception e) {
+                    LOG.warn("runByName: single-profile daemon failed for " + name + ", falling back to filter mode", e);
+                    highlightRunner.run();
+                }
+            } else {
+                highlightRunner.run();
+            }
         }, progress);
 
         var result = diagsRef.get() != null ? diagsRef.get() : List.<Diagnostic>of();
-        LOG.info("runByName: " + name + " found " + result.size() + " problems [single-tool profile]");
+        LOG.info("runByName: " + name + " found " + result.size() + " problems" +
+                (effectiveProfile != null ? " [single-tool profile]" : " [filter mode]"));
         return result;
+    }
+
+    @NotNull
+    private List<Diagnostic> extractDiagnostics(@NotNull List<HighlightInfo> highlights,
+                                                 com.intellij.openapi.editor.Document doc,
+                                                 @NotNull String name) {
+        var diags = new ArrayList<Diagnostic>();
+        for (var info : highlights) {
+            var toolId = info.getInspectionToolId();
+            if (toolId == null || !toolId.equals(name)) continue;
+            if (info.getDescription() == null) continue;
+
+            var sl = doc.getLineNumber(info.startOffset);
+            var sc = info.startOffset - doc.getLineStartOffset(sl);
+            var el = doc.getLineNumber(info.endOffset);
+            var ec = info.endOffset - doc.getLineStartOffset(el);
+
+            var severity = severityMap.getOrDefault(info.getSeverity(), DiagnosticSeverity.Hint);
+            var diag = new Diagnostic(
+                    new Range(new Position(sl, sc), new Position(el, ec)),
+                    info.getDescription()
+            );
+            diag.setSeverity(severity);
+            diag.setCode(toolId);
+            diags.add(diag);
+        }
+        return diags;
     }
 
     private @org.jetbrains.annotations.Nullable InspectionToolWrapper<?, ?> lookupWrapper(@NotNull String name) {
