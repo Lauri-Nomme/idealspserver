@@ -16,8 +16,14 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiEnumConstant;
+import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
 import org.eclipse.lsp4j.DocumentSymbol;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.SymbolInformation;
@@ -27,7 +33,6 @@ import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
-import tf.locals.idealsp.server.symbol.util.SymbolUtil;
 import tf.locals.idealsp.server.util.LspProgressIndicator;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -115,24 +120,50 @@ final public class DocumentSymbolService {
 
     DocumentSymbol documentSymbol = ReadAction.compute(() -> {
       var curSymbol = new DocumentSymbol();
-      curSymbol.setKind(SymbolUtil.getSymbolKind(root.getPresentation()));
       if (root instanceof StructureViewTreeElement viewElement) {
-        var maybePsiElement = viewElement.getValue();
         curSymbol.setName(viewElement.getPresentation().getPresentableText());
-        if (maybePsiElement instanceof PsiElement psiElement) {
-          if (psiElement.getContainingFile() != psiFile) {
-            // refers to another file
-            return null;
-          }
-          var ideaRange = psiElement.getTextRange();
+
+        var value = viewElement.getValue();
+
+        // Get kind and detail from PSI element directly
+        if (value instanceof PsiMethod method) {
+          curSymbol.setKind(SymbolKind.Method);
+          setMethodDetail(curSymbol, method);
+          if (method.getContainingFile() != psiFile) return null;
+          var ideaRange = method.getTextRange();
           curSymbol.setRange(new Range(
               MiscUtil.offsetToPosition(document, ideaRange.getStartOffset()),
               MiscUtil.offsetToPosition(document, ideaRange.getEndOffset())));
-
-          var ideaPickSelectionRange = new TextRange(psiElement.getTextOffset(), psiElement.getTextOffset());
+          var selectionRange = new TextRange(method.getTextOffset(), method.getTextOffset());
           curSymbol.setSelectionRange(new Range(
-              MiscUtil.offsetToPosition(document, ideaPickSelectionRange.getStartOffset()),
-              MiscUtil.offsetToPosition(document, ideaPickSelectionRange.getEndOffset())));
+              MiscUtil.offsetToPosition(document, selectionRange.getStartOffset()),
+              MiscUtil.offsetToPosition(document, selectionRange.getEndOffset())));
+        } else if (value instanceof PsiField field) {
+          curSymbol.setKind(SymbolKind.Field);
+          setFieldDetail(curSymbol, field);
+          if (field.getContainingFile() != psiFile) return null;
+          var ideaRange = field.getTextRange();
+          curSymbol.setRange(new Range(
+              MiscUtil.offsetToPosition(document, ideaRange.getStartOffset()),
+              MiscUtil.offsetToPosition(document, ideaRange.getEndOffset())));
+          var selectionRange = new TextRange(field.getTextOffset(), field.getTextOffset());
+          curSymbol.setSelectionRange(new Range(
+              MiscUtil.offsetToPosition(document, selectionRange.getStartOffset()),
+              MiscUtil.offsetToPosition(document, selectionRange.getEndOffset())));
+        } else if (value instanceof PsiClass psiClass) {
+          curSymbol.setKind(SymbolKind.Class);
+          setClassDetail(curSymbol, psiClass);
+          if (psiClass.getContainingFile() != psiFile) return null;
+          var ideaRange = psiClass.getTextRange();
+          curSymbol.setRange(new Range(
+              MiscUtil.offsetToPosition(document, ideaRange.getStartOffset()),
+              MiscUtil.offsetToPosition(document, ideaRange.getEndOffset())));
+          var selectionRange = new TextRange(psiClass.getTextOffset(), psiClass.getTextOffset());
+          curSymbol.setSelectionRange(new Range(
+              MiscUtil.offsetToPosition(document, selectionRange.getStartOffset()),
+              MiscUtil.offsetToPosition(document, selectionRange.getEndOffset())));
+        } else {
+          curSymbol.setKind(SymbolKind.Object);
         }
       }
       return curSymbol;
@@ -149,6 +180,57 @@ final public class DocumentSymbolService {
     }
     documentSymbol.setChildren(children);
     return documentSymbol;
+  }
+
+  private void setMethodDetail(@NotNull DocumentSymbol symbol, @NotNull PsiMethod method) {
+    StringBuilder detail = new StringBuilder();
+    if (method.hasModifierProperty(PsiModifier.PUBLIC)) {
+      detail.append("public");
+    } else if (method.hasModifierProperty(PsiModifier.PROTECTED)) {
+      detail.append("protected");
+    } else if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
+      detail.append("private");
+    } else {
+      detail.append("package");
+    }
+    detail.append(" ");
+    detail.append(method.getName());
+    detail.append("(");
+    var params = method.getParameterList();
+    var paramTypes = params.getParameters();
+    for (int i = 0; i < paramTypes.length; i++) {
+      if (i > 0) detail.append(", ");
+      detail.append(paramTypes[i].getType().getPresentableText());
+    }
+    detail.append("): ");
+    detail.append(method.getReturnType() != null ? method.getReturnType().getPresentableText() : "void");
+    symbol.setDetail(detail.toString());
+  }
+
+  private void setFieldDetail(@NotNull DocumentSymbol symbol, @NotNull PsiField field) {
+    StringBuilder detail = new StringBuilder();
+    if (field.hasModifierProperty(PsiModifier.PUBLIC)) {
+      detail.append("public");
+    } else if (field.hasModifierProperty(PsiModifier.PROTECTED)) {
+      detail.append("protected");
+    } else if (field.hasModifierProperty(PsiModifier.PRIVATE)) {
+      detail.append("private");
+    } else {
+      detail.append("package");
+    }
+    detail.append(" ");
+    detail.append(field.getType().getPresentableText());
+    symbol.setDetail(detail.toString());
+  }
+
+  private void setClassDetail(@NotNull DocumentSymbol symbol, @NotNull PsiClass psiClass) {
+    if (psiClass.hasModifierProperty(PsiModifier.PUBLIC)) {
+      symbol.setDetail("public");
+    } else if (psiClass.hasModifierProperty(PsiModifier.PROTECTED)) {
+      symbol.setDetail("protected");
+    } else if (psiClass.hasModifierProperty(PsiModifier.PRIVATE)) {
+      symbol.setDetail("private");
+    }
   }
 
 }
