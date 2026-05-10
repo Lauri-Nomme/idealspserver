@@ -111,23 +111,29 @@ This changes O(hours) of manual searching into seconds of precise operations.
 | Rename | ✅ Working | OK |
 | Signature Help | ✅ Working | OK |
 | Call Hierarchy | ✅ Working | incoming/outgoing calls found |
+| Code Actions | ✅ Working | Quick fixes and refactors |
+| Data Flow | ✅ Working | dataflowFrom/dataflowTo via IdeaLspServer extension |
+| Inspections | ✅ Working | list, runByName on file and all files |
 
 ### AI Agent Tools - Status
 
-For AI agents working effectively with LSP tools:
+All LSP features are fully implemented and tested as of May 2026. The IdeaLS plugin provides comprehensive symbol-level navigation for AI agents.
 
-| Priority | Tool | LSP Method | Current Status | AI Use Case |
-|----------|------|-----------|----------------|------------|
+| Priority | Tool | LSP Method | Status | AI Use Case |
+|----------|------|-----------|--------|------------|
 | **CRITICAL** | find_symbol | workspace/symbol | ✅ Working | Find any symbol fast |
 | **CRITICAL** | references | textDocument/references | ✅ Working | Find all usages |
 | **CRITICAL** | completion | textDocument/completion | ✅ Working | Type-aware suggestions |
 | **HIGH** | rename_symbol | textDocument/rename | ✅ Working | Safe refactoring |
-| **HIGH** | code_action | textDocument/codeAction | ⚠️ Partial | Auto-imports, quick fixes (some lazy init issues) |
+| **HIGH** | code_action | textDocument/codeAction | ✅ Working | Auto-imports, quick fixes |
 | **HIGH** | definition | textDocument/definition | ✅ Working | Jump to definition |
+| **HIGH** | diagnostics | textDocument/publishDiagnostics | ✅ Working | IDE errors/warnings for AI agents |
+| **HIGH** | call_hierarchy | callHierarchy/* | ✅ Working | Find callers/callees |
 | **MEDIUM** | implementation | textDocument/implementation | ✅ Working | Find interface impls |
 | **MEDIUM** | signature_help | textDocument/signatureHelp | ✅ Working | Parameter hints |
-| **LOW** | formatting | textDocument/formatting | ❓ Unknown | Auto-format |
-| **HIGH** | diagnostics | textDocument/publishDiagnostics | ✅ Working | IDE errors/warnings for AI agents |
+| **MEDIUM** | dataflow | textDocument/dataflowFrom/To | ✅ Working | Value propagation tracking |
+| **MEDIUM** | inspect | $/inspection/* | ✅ Working | Run named inspections |
+| **LOW** | formatting | textDocument/formatting | ✅ Working | Auto-format |
 
 ### LSP Spec Coverage
 

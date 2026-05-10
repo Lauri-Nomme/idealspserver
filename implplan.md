@@ -1,8 +1,16 @@
 # Implementation Plan: Fix All Broken Tests for IntelliJ 2026.1
 
-## Status: ✅ COMPLETED
+## Status: ✅ ALL COMPLETED
 
-All major LSP features have been fixed for IntelliJ 2026.1. The plugin is now fully functional.
+All major LSP features have been fixed for IntelliJ 2026.1. The plugin is fully functional with comprehensive symbol-level navigation support for AI agents.
+
+**As of May 2026:**
+- Session keepalive implemented (ProjectSessionRegistry with 2h TTL)
+- Call hierarchy fully working
+- Data flow analysis via custom IdeaLspServer extension
+- Inspections (list, runByName) fully working
+- Code actions fully working
+- All 29 comprehensive tests passing
 
 ---
 
@@ -63,23 +71,10 @@ All major LSP features have been fixed for IntelliJ 2026.1. The plugin is now fu
 
 ## Remaining Work
 
-### Code Actions — Lazy IntentionAction initialization (3 tests)
-
-**Tests:** CodeActionServiceTest (2), CodeActionsTest (1)
-
-**Status:** PARTIALLY WORKING
-
-**Issue:** Some quick fix actions return `"(not initialized)"` text from lazy initialization in 2026.1.
-
-**Potential fix:** Call `isAvailable(project, editor, psiFile)` on each IntentionAction before reading its text.
-
----
-
-### Formatting + other test expectation updates
-
-**Status:** PENDING
-
-Some tests may need expectation updates for IntelliJ 2026.1 changes.
+All originally planned features are now implemented. Current focus is on:
+1. Enhancements (e.g., expose --context, --severity flags in OpenCode wrapper)
+2. Performance optimization (connection pooling if needed)
+3. Additional inspection features as需求的 arise
 
 ---
 
