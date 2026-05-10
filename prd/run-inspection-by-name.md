@@ -7,12 +7,13 @@
 ### Completed
 - `$/inspection/list` LSP extension — list/search all registered inspections by shortName/displayName
 - `$/inspection/runByName` LSP extension — run a single inspection on a file, returns LSP Diagnostics
-- `InspectionService` (Java) — `listInspections(query)` + `runByName(psiFile, name)`
+- `$/inspection/runByName` with null/empty textDocument — run inspection on all files in project
+- `InspectionService` (Java) — `listInspections(query)` + `runByName(psiFile, name)` + `runByNameOnAllFiles(name)`
 - Handles: LocalInspectionTool, GlobalSimpleInspectionTool (with ProblemsHolder workaround), GlobalInspectionTool
 - `InspectionInfo` + `InspectionRunByNameParams` POJOs
-- Unit tests (6 pass) + Comprehensive Python tests (tests 23-27)
-- xlsp CLI: `inspect-list` and `inspect` operations
-- opencode tool wrapper updated
+- Unit tests (10 pass) + Comprehensive Python tests (tests 23-29)
+- xlsp CLI: `inspect-list`, `inspect`, and `inspect-all` operations
+- opencode tool wrapper updated with `inspect-all` operation
 
 ### Known limitation
 Single-file inspection via `runInspectionOnFile` requires proper PSI/JDK context. Results may be empty if the project doesn't have full SDK classpath configured. The full daemon pass (`runMainPasses`) handles this better but runs all inspections.
@@ -181,6 +182,7 @@ Server-side: run full daemon pass (as today) but tag each diagnostic with the in
 ```
 xlsp inspect <name> [in <file-or-dir>]
 xlsp inspect-list [--query <substring>]    # list/search available inspections
+xlsp inspect-all <name>                    # run inspection on all files in project
 
 Examples:
   xlsp inspect unused in src/main/java/Foo.java
@@ -188,6 +190,7 @@ Examples:
   xlsp inspect-list                         # all inspections
   xlsp inspect-list --query "null"          # find inspections about nullability
   xlsp inspect-list --query "unused"        # find inspections about unused code
+  xlsp inspect-all unused                   # run unused inspection across all project files
 ```
 
 Output (run inspection):
