@@ -58,6 +58,9 @@ xlsp <operation> <symbol> [in <file-or-pattern>] [--option value]
 | `diagnostics` | Get errors/warnings | `[{severity, message, file, line, column}]` |
 | `actions` | Get code actions | `[{title, kind, edit}]` |
 | `signature` | Parameter signature help | `{label, parameters: [{name, type}]}` |
+| `inspect-list` | List/search inspections | `[{shortName, displayName, group, enabled}]` |
+| `inspect` | Run inspection on file | `[{severity, message, line, column}]` |
+| `inspect-all` | Run inspection on all project files | `[{severity, message, line, column}]` |
 
 ### Input Flexibility
 
@@ -162,6 +165,9 @@ tools/xlsp/
 | `type-def <sym>` | `textDocument/typeDefinition` | Resolve sym → position |
 | `dataflow-from <sym>` | `textDocument/dataflowFrom` | Resolve sym → position |
 | `dataflow-to <sym>` | `textDocument/dataflowTo` | Resolve sym → position |
+| `inspect-list` | `$/inspection/list` | Query string for filtering |
+| `inspect <name> in <file>` | `$/inspection/runByName` | File path for target |
+| `inspect-all <name>` | `$/inspection/runByName` (null textDocument) | No file needed |
 
 ### Symbol Resolution Strategy
 
