@@ -201,7 +201,131 @@ public class ApplyEditCommand extends LspCommand<ApplyWorkspaceEditResponse> {
 }
 ```
 
-### 3.3 xlsp CLI Integration
+### 3.3 CodeAction → Edit: Current State vs Options
+
+#### Current behavior: two-round-trip
+
+```
+Client                    Server
+  |                           |
+  |-- codeAction() ------------→|
+  |    (uri, range)            | getCodeActions() → CodeAction{title, data{uri,range}}
+  |←- [CodeAction{title}] -----|  NO edit field
+  |                           |
+  |-- codeAction/resolve() ----→|
+  |    (unresolved CodeAction)  | applyCodeAction():
+  |                            |   1. psiFile.copy() → oldCopy
+  |                            |   2. action.invoke() on real psiFile
+  |                            |   3. diff oldCopy vs newCopy → TextEdit[]
+  |                            |   4. restore original (setText back)
+  |                            |   5. return WorkspaceEdit
+  |←- CodeAction{edit} --------|  edit set in resolve response
+```
+
+**Problem**: Agent needs two calls and must parse `data` → construct resolve request → parse edit → apply.
+
+#### Option A: Eager CodeAction (recommended for applyEdit integration)
+
+```
+|-- codeAction() ------------→|
+  |    (uri, range)            | getCodeActions():
+  |                            |   for each action:
+  |                            |     psiFile.copy() → oldCopy
+  |                            |     action.invoke() on copy  ← runs on PSI copy
+  |                            |     diff → WorkspaceEdit
+  |                            |     restore original (no side effects)
+  |                            |     CodeAction{title, edit, data}
+  |←- [CodeAction{title,edit}]|
+```
+
+**Pros**: Agent gets edit in one call, can immediately applyEdit. Safe — copy-diff-restore means no permanent changes.
+
+**Cons**: Each action runs twice (once in list, once in resolve if client calls it). Slower response for large action lists. Action that has side effects (writes external state) could behave differently on copy vs original.
+
+**Risk assessment**: The copy-diff-restore pattern (`CodeActionService:214, 326-329`) is already used in `applyCodeAction()`. It works because:
+1. Action runs on real PSI (all PSI-aware fixes work)
+2. File is restored after (`newDoc.setText(oldDoc.getText())`)
+3. Diff is extracted from the side effects that occurred during the action
+
+The risk is that some actions might rely on actual file state. E.g., "Optimize imports" on a copy sees different imports than on the real file. For most quick-fixes (add import, add semicolon), this is fine.
+
+#### Option B: Direct Apply (apply code action on server without extract-then-apply)
+
+Instead of `codeAction → extract WorkspaceEdit → applyEdit`, skip the extract step:
+
+```
+|-- applyCodeAction() --------→|
+  |    (CodeAction{title,data}) | applyCodeAction():
+  |                            |   action.invoke() on REAL psiFile  ← applies immediately
+  |                            |   (no copy, no restore)
+  |                            |   halt diagnostics, re-launch
+  |←- {applied: true} ---------|  return success
+```
+
+**Pros**: Single call. No diff computation. No copy overhead.
+
+**Cons**:
+1. **Irreversible from client perspective**: Agent can't preview the edit before it's applied. LSP spec says client should apply edits from `WorkspaceEdit` — this inverts that contract.
+2. **No edit to share with client**: If client needs the edit for its own state (buffer sync), it's not returned.
+3. **Error handling is harder**: If the action partially fails, the file is already modified. With extract-then-apply, you can retry.
+4. **Undo stack**: IntelliJ's undo shows the edit correctly, but the LSP client has no knowledge of it.
+
+**Viability**: Technically works but breaks the LSP edit contract. The LSP design assumes:
+- Server returns `WorkspaceEdit` to client
+- Client applies edits (knows buffer state, can sync)
+- Client reports `applied: true/false`
+
+The server applying directly bypasses this. It's more like `workspace/executeCommand` than `workspace/applyEdit`.
+
+#### Option C: ExecuteCommand for code actions (bypass applyEdit entirely)
+
+Register code action titles as named commands:
+
+```
+|-- executeCommand() ----------→|
+  |    (command: "idealsp.applyQuickFix", arguments: [title, uri, range])
+  |                            | action.invoke() on real psiFile
+  |                            |   halt diagnostics, re-launch
+  |←- {applied: true} ---------|  return success
+```
+
+**Pros**: No new LSP method needed. `executeCommand` already exists in capability.
+
+**Cons**:
+1. Commands must be registered in `ExecuteCommandOptions` upfront — dynamic registration of code-action names is complex
+2. Client doesn't know which commands exist (no discovery)
+3. Same issue as Option B — no preview, no edit to share
+
+### 3.4 Recommendation
+
+**Option A (eager CodeAction) + Option B (applyEdit) together:**
+
+1. Make `getCodeActions()` return `CodeAction{edit: WorkspaceEdit}` directly (eager). No resolve round-trip needed. The agent gets the edit immediately.
+
+2. Implement `workspace/applyEdit` as a **generic edit application** mechanism that:
+   - Applies any `WorkspaceEdit` (from code-action, rename, or future semantic-replace)
+   - Provides an explicit, auditable apply mechanism
+   - Allows the agent to preview the edit before applying (see edit in JSON, then decide to apply)
+   - Enables error recovery (applyEdit can fail, agent retries)
+
+**Why both?**
+
+- **Option B alone** (direct apply without applyEdit) means: `codeAction → server applies immediately → done`. No preview, no explicit apply step.
+- **Option A + applyEdit** means: `codeAction → see the exact edits → decide to apply → applyEdit`. More steps, but agent has full visibility and control.
+
+For an AI agent, **Option A + applyEdit is better** because:
+1. Agent can examine the edit before applying ("This will add 3 imports and change 2 lines")
+2. Agent can apply multiple edits together (`xlsp apply <combined-edit>`)
+3. Error recovery works (if applyEdit fails, retry the codeAction)
+4. Composable: `xlsp semantic search → applyEdit` doesn't need codeAction at all
+
+**Implementation notes:**
+
+The eager CodeAction approach has one subtle risk: **the copy might not reflect the real file state** at action time. E.g., if the client has unsaved changes (via `didChange`) that IntelliJ's PSI hasn't seen yet, the action on the copy runs on stale PSI.
+
+Mitigation: The server already manages its own document state via `ManagedDocuments`. The copy is from the server's PSI view, which is consistent. `didChange` from the client updates the server's document first.
+
+### 3.5 xlsp CLI Integration
 
 ```bash
 # Apply workspace edit from JSON
@@ -259,6 +383,8 @@ ApplyEdit is the **universal edit primitive** that unifies all edit-producing LS
 6. **Error reporting**: Applied partially → `failureReason` reports which files failed
 7. **xlsp integration**: `xlsp apply <json>` → server applies, returns `{applied: true/false}`
 8. **Chain with code-action**: Full diagnose → fix → verify loop works without manual editing
+9. **Eager CodeAction**: `codeAction()` returns `CodeAction{edit: WorkspaceEdit}` directly (no resolve round-trip needed)
+10. **Preview before apply**: Agent sees exact edit content before calling `applyEdit`
 
 ## 5. Implementation Order
 
@@ -267,6 +393,7 @@ ApplyEdit is the **universal edit primitive** that unifies all edit-producing LS
 | 1 | `ApplyEditCommand.java` — core logic | None |
 | 2 | Register in `LspServer` workspace service | Phase 1 |
 | 3 | Wire `applyEdit()` in `MyTextDocumentService` | Phase 2 |
-| 4 | xlsp CLI `apply` operation | Phase 3 |
-| 5 | Python integration test | Phase 4 |
-| 6 | Chain test: diagnostics → code-action → apply → diagnostics | Phase 5 |
+| 4 | **Eager CodeAction**: make `getCodeActions()` return edit directly (copy-diff-restore per action) | Phase 3 |
+| 5 | xlsp CLI `apply` operation | Phase 4 |
+| 6 | Python integration test: applyEdit standalone | Phase 5 |
+| 7 | Chain test: diagnostics → code-action (eager) → applyEdit → diagnostics | Phase 6 |
