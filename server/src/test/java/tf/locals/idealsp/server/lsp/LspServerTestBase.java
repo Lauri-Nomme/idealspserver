@@ -15,6 +15,7 @@ import tf.locals.idealsp.server.LspServer;
 import tf.locals.idealsp.server.TestUtil;
 import tf.locals.idealsp.server.mocks.MockLanguageClient;
 
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -34,6 +35,15 @@ public abstract class LspServerTestBase extends HeavyPlatformTestCase {
 
   @NotNull
   protected Path getTestDataRoot() {
+    var url = getClass().getClassLoader().getResource("lsp/project1");
+    if (url != null) {
+      try {
+        var path = Paths.get(url.toURI()).getParent();
+        if (path != null) return path;
+      } catch (URISyntaxException e) {
+        throw new RuntimeException(e);
+      }
+    }
     return Paths.get("test-data").toAbsolutePath();
   }
 

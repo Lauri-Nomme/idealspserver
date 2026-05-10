@@ -1,7 +1,12 @@
-import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 
 class UnusedImportFixture {
     public void test() {
-        System.out.println("hello");
+        List<String> l = new ArrayList<>();
+    }
+    
+    public void unusedMethod() {
+        // This method is never used
     }
 }

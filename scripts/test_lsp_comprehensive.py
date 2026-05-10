@@ -782,6 +782,45 @@ def test_all():
         err = resp.get("error") if resp else None
         print(f"27. Inspection runByName (non-existent): FAILED (error={err})")
 
+    # Test inspection runByName on all files (no textDocument)
+    resp = send_and_recv(
+        sock,
+        "$/inspection/runByName",
+        {"name": "unused"},
+        28,
+    )
+    if resp and "result" in resp:
+        diagnostics = resp["result"]
+        if isinstance(diagnostics, list):
+            print(f"28. Inspection runByName (all files): OK - Found {len(diagnostics)} diagnostics across project")
+            for d in diagnostics[:3]:
+                sev = {1: "Error", 2: "Warn", 3: "Info", 4: "Hint"}.get(d.get("severity"), "?")
+                msg = (d.get("message") or "")[:60]
+                code = d.get("code", "")
+                print(f"    - [{sev}] {msg}")
+        else:
+            print(f"28. Inspection runByName (all files): FAILED - unexpected format")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"28. Inspection runByName (all files): FAILED (error={err})")
+
+    # Test inspection runByName on all files with null textDocument
+    resp = send_and_recv(
+        sock,
+        "$/inspection/runByName",
+        {"textDocument": None, "name": "unused"},
+        29,
+    )
+    if resp and "result" in resp:
+        diagnostics = resp["result"]
+        if isinstance(diagnostics, list):
+            print(f"29. Inspection runByName (null textDocument): OK - Found {len(diagnostics)} diagnostics across project")
+        else:
+            print(f"29. Inspection runByName (null textDocument): FAILED - unexpected format")
+    else:
+        err = resp.get("error") if resp else None
+        print(f"29. Inspection runByName (null textDocument): FAILED (error={err})")
+
     sock.close()
     print("\n=== All tests completed ===")
 
