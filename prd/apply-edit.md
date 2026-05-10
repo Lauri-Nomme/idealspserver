@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft** — viability research complete
+**Draft** — viability research complete, design revised
 
 ---
 
@@ -13,117 +13,69 @@ AI agents can **diagnose** problems and **propose** fixes, but cannot **apply** 
 ```
 Agent workflow today (broken loop):
 1. xlsp diagnostics → "Cannot resolve symbol 'Foo' at line 42"
-2. xlsp code-action → "{ edits: [{range: {line:42}, newText: 'import foo.Foo;'}] }"
+2. xlsp code-action → [CodeAction{title: "Add import", data: {uri, range}}]
 3. Agent manually edits file → uses edit tool with string match
 4. Agent must read file, find line 42, apply edit manually
 ```
 
-**What's missing**: The server can produce a `WorkspaceEdit` but the agent can't send it back. The LSP `workspace/applyEdit` method exists in the spec but isn't implemented.
+**What's missing**: After `codeAction()`, the agent needs a way to tell the server "apply this fix". Currently, there's no LSP method to do this.
 
 ## 2. Viability Research
 
-### 2.1 Building Blocks — All Present ✅
+### 2.1 Existing Apply Logic — Already in Codebase ✅
 
-| Component | Status | Location |
-|-----------|--------|----------|
-| `WriteCommandAction` | ✅ Used in `DocumentSymbolService.java:82` | Already in codebase |
-| `PsiDocumentManager` | ✅ Available via IntelliJ API | Standard IntelliJ |
-| `Document` (editing) | ✅ Used in `DiagnosticsTask`, `MiscUtil` | Standard IntelliJ |
-| `TextEdit` → text conversion | ✅ `TestUtil.applyEdits()` (lines 88-147) | `TestUtil.java` |
-| Incremental sync (didChange) | ✅ Already configured in `LspServer.java` | `TextDocumentSyncKind.Incremental` |
-| `workspace/applyEdit` types | ✅ LSP4J has all classes | Standard LSP4J |
-| `DocumentFormattingParams` / `FormattingCommand` | ✅ `MyTextDocumentService.java:236` | Already implemented |
+`CodeActionService.applyCodeAction()` (lines 197-341) already implements the full apply logic:
 
-### 2.2 Key APIs
-
-**WriteCommandAction pattern** (already used in codebase):
 ```java
-WriteCommandAction.runWriteCommandAction(project, null, null, () -> {
-    // edit document here
-    document.replaceString(startOffset, endOffset, newText);
-});
+// 1. Find the action by title (reflection-based lookup)
+actionFound = Stream.of(quickFixes, errorFixes, ...)
+    .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
+    .findFirst();
+
+// 2. Invoke the action on real PSI
+invokeMethod.invoke(actionFound, project, editor, psiFile);
+
+// 3. Re-run diagnostics
+diagnostics().haltDiagnostics(path);
+diagnostics().launchDiagnostics(path);
 ```
 
-**TestUtil.applyEdits()** — already converts `TextEdit[]` to string (reference implementation):
+This means the server **already knows how to apply code actions**. The missing piece is a clean LSP endpoint to expose this.
+
+### 2.2 Key Insight
+
+The copy-diff-restore pattern in `applyCodeAction()` was for extracting the `WorkspaceEdit` for the LSP response. If the goal is **just apply and report success** (not return the edit), the code is even simpler:
+
 ```java
-// TestUtil.java:88 — assumes edits don't overlap
-public static @NotNull String applyEdits(@NotNull String originalText, @NotNull Collection<TextEdit> edits) {
-    // 1. Sort edits by line/character
-    // 2. Convert LSP positions to offsets
-    // 3. Apply from end to start (to preserve offsets)
-    // 4. Return modified text
-}
+// Direct apply — no copy, no diff, no restore
+actionFound.invoke(project, editor, psiFile);  // ← on real PSI, immediately
+diagnostics().haltDiagnostics(path);
+diagnostics().launchDiagnostics(path);
+return new ApplyWorkspaceEditResponse(true, null);
 ```
 
-**DocumentSync already configured**:
-```java
-// LspServer.java:141-145
-syncOptions.setChange(TextDocumentSyncKind.Incremental);  // already on
-```
-
-### 2.3 What Needs to Be Built
-
-Minimal implementation:
-
-```
-LspServer.java (WorkspaceService):
-  + applyEdit(ApplyWorkspaceEditParams) → CompletableFuture<ApplyWorkspaceEditResponse>
-
-ApplyEditCommand.java (NEW):
-  - Takes WorkspaceEdit
-  - For each file URI → edits mapping:
-    - Resolve PsiFile
-    - Get Document
-    - Apply TextEdits via WriteCommandAction
-  - Return success/failure per file
-
-MyTextDocumentService.java:
-  + applyEdit() delegating to ApplyEditCommand
-```
-
-### 2.4 Effort Estimate
+### 2.3 Effort Estimate
 
 | Task | Effort | Notes |
 |------|--------|-------|
-| `ApplyEditCommand.java` | 2-3h | Core logic: resolve file → get document → apply edits |
-| `LspServer` workspace service registration | 1h | Wire in applyEdit endpoint |
-| `MyTextDocumentService.applyEdit()` | 0.5h | Delegate pattern |
-| xlsp CLI `apply` operation | 1h | Accept JSON edits, send to server |
-| Tests | 2h | Unit tests + Python integration test |
-| **Total** | **~8-10h** | |
-
-### 2.5 Risks & Mitigations
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Concurrent edit conflicts | Low | IntelliJ's write action system serializes; edits to same file queue naturally |
-| File not open in server | Low | `didOpen` manages documents; file may be open by client or by server's own file access |
-| Large edit causing issues | Low | TextEdits are PSI-level; no parsing needed |
-| Test coverage of edit correctness | Medium | Compare expected vs actual file content; use existing `TestUtil.applyEdits()` as oracle |
-
-### 2.6 Alternative Approaches Considered
-
-| Approach | Why Not |
-|----------|---------|
-| **Agent edits via `bash` / `sed`** | No PSI awareness, breaks formatting, no undo support |
-| **`textDocument/didChange` (client-initiated)** | Client would need to manage file content; server loses control; duplicate document tracking |
-| **Custom HTTP endpoint** | Outside LSP spec; breaks protocol layering |
-| **Execute command (`workspace/executeCommand`)** | Intended for named commands; `applyEdit` is the semantically correct method |
-
-**Decision**: Use standard `workspace/applyEdit` — it's the correct LSP method, LSP4J provides all types, and IntelliJ provides all editing primitives.
+| `codeAction/apply` custom LSP method | 2-3h | Reuses existing `applyCodeAction()` logic, stripped of copy-diff-restore |
+| Registration in `IdeaLspServer` | 0.5h | `@JsonRequest("idealsp/codeActionApply")` |
+| xlsp CLI `apply` operation | 1h | Accept `{title, uri, range}`, call server, return result |
+| Tests | 2h | Unit + Python integration |
+| **Total** | **~6-8h** | |
 
 ## 3. Design
 
-### 3.1 LSP Protocol
+### 3.1 Recommended: `codeAction/apply` Custom Method
+
+A dedicated custom LSP method specifically for applying code actions:
 
 ```
-workspace/applyEdit (LSP 3.0)
-  Params: ApplyWorkspaceEditParams {
-    edit: WorkspaceEdit {
-      changes?: { [uri]: TextEdit[] }      // file URI → edits (incremental)
-      documentChanges?: (TextEdit | CreateFile | RenameFile | DeleteFile)[]  // full
-    },
-    label?: string                         // "Add import" for undo
+idealsp/codeActionApply (custom)
+  Params: {
+    title: string,       // action title to match (from codeAction response)
+    uri: string,         // file URI (from codeAction data)
+    range: Range         // range (from codeAction data)
   }
   Result: ApplyWorkspaceEditResponse {
     applied: boolean
@@ -131,269 +83,249 @@ workspace/applyEdit (LSP 3.0)
   }
 ```
 
-### 3.2 Server-Side Implementation
+**Why custom, not standard?** Standard LSP has no "apply this code action" method. The closest is `workspace/applyEdit` which expects a `WorkspaceEdit`, not an action identifier. A custom method is the right tool for the job.
+
+### 3.2 Server Implementation
 
 ```java
-// MyTextDocumentService.java
-@Override
-public CompletableFuture<ApplyWorkspaceEditResponse> applyEdit(
-        ApplyWorkspaceEditParams params) {
+// IdeaLspServer.java
+@JsonRequest("idealsp/codeActionApply")
+public CompletableFuture<ApplyWorkspaceEditResponse> codeActionApply(
+        CodeActionApplyParams params) {
     var project = session.getProject();
     if (project == null) {
         return CompletableFuture.completedFuture(
             new ApplyWorkspaceEditResponse(false, "project not initialized"));
     }
-    return new ApplyEditCommand(params.getEdit())
+    return new CodeActionApplyCommand(params.getTitle(), params.getUri(), params.getRange())
         .runAsync(project, null);
 }
 
-// ApplyEditCommand.java (extends LspCommand<ApplyWorkspaceEditResponse>)
-public class ApplyEditCommand extends LspCommand<ApplyWorkspaceEditResponse> {
-    private final WorkspaceEdit edit;
+// CodeActionApplyParams.java
+public record CodeActionApplyParams(
+    @NotNull String title,
+    @NotNull String uri,
+    @NotNull Range range
+) {}
+
+// CodeActionApplyCommand.java
+public class CodeActionApplyCommand extends LspCommand<ApplyWorkspaceEditResponse> {
+    private final String title;
+    private final LspPath path;
+    private final Range range;
 
     @Override
     protected ApplyWorkspaceEditResponse execute(@NotNull ExecutorContext ctx) {
-        var failures = new ArrayList<String>();
+        var result = new Ref<ApplyWorkspaceEditResponse>();
 
-        // 1. Handle documentChanges (full document replace / create / rename / delete)
-        if (edit.getDocumentChanges() != null) {
-            for (var change : edit.getDocumentChanges()) {
-                if (change instanceof TextEdit docChange) {
-                    applyTextEdit(docChange);
-                }
-                // CreateFile, RenameFile, DeleteFile handled separately
-            }
-        }
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            MiscUtil.invokeWithPsiFileInReadAction(project, path, (psiFile) -> {
+                var disposable = Disposer.newDisposable();
+                try {
+                    EditorUtil.withEditor(disposable, psiFile, range.getStart(), (editor) -> {
+                        // 1. Get all available actions at this position (same as getCodeActions)
+                        var actionInfo = ShowIntentionsPass.getActionsToShow(editor, psiFile, true);
+                        var errorFixes = actionInfo.errorFixesToShow;
+                        var inspectionFixes = actionInfo.inspectionFixesToShow;
+                        var intentions = actionInfo.intentionsToShow;
 
-        // 2. Handle changes (incremental per-file edits)
-        if (edit.getChanges() != null) {
-            for (var entry : edit.getChanges().entrySet()) {
-                var uri = entry.getKey();
-                var edits = entry.getValue();
-                applyEditsToFile(uri, edits);
-            }
-        }
+                        // 2. Force-init lazy descriptors
+                        Stream.of(errorFixes, inspectionFixes, intentions)
+                            .flatMap(Collection::stream)
+                            .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
 
-        return new ApplyWorkspaceEditResponse(failures.isEmpty(), failures.isEmpty() ? null : String.join("; ", failures));
-    }
+                        // 3. Find matching action by title
+                        var actionFound = Stream.of(errorFixes, inspectionFixes, intentions)
+                            .flatMap(Collection::stream)
+                            .map(it -> tryGetAction(it))
+                            .filter(it -> title.equals(tryGetText(it)))
+                            .findFirst()
+                            .orElse(null);
 
-    private void applyEditsToFile(String uri, List<TextEdit> edits) {
-        var path = LspPath.fromLspUri(uri);
-        MiscUtil.produceWithPsiFileInReadAction(project, path, psiFile -> {
-            var document = MiscUtil.getDocument(psiFile);
-            if (document == null) return null;
+                        if (actionFound == null) {
+                            result.set(new ApplyWorkspaceEditResponse(false,
+                                "No action found with title: " + title));
+                            return;
+                        }
 
-            ApplicationManager.getApplication().runWriteAction(() -> {
-                // Sort edits: later offsets first (apply end-to-start)
-                var sortedEdits = edits.stream()
-                    .sorted(byOffsetDescending(document))
-                    .toList();
+                        // 4. Apply — directly on real PSI, no copy, no diff
+                        CommandProcessor.getInstance().executeCommand(project, () -> {
+                            try {
+                                actionFound.invoke(project, editor, psiFile);
+                            } catch (Exception e) {
+                                result.set(new ApplyWorkspaceEditResponse(false,
+                                    "Action invoke failed: " + e.getMessage()));
+                                return;
+                            }
+                        }, title, null);
 
-                for (var edit : sortedEdits) {
-                    var start = positionToOffset(document, edit.getRange().getStart());
-                    var end = positionToOffset(document, edit.getRange().getEnd());
-                    document.replaceString(start, end, edit.getNewText());
+                        result.set(new ApplyWorkspaceEditResponse(true, null));
+                    });
+                } finally {
+                    Disposer.dispose(disposable);
                 }
             });
-            return null;
         });
+
+        // 5. Refresh diagnostics
+        diagnostics().haltDiagnostics(path);
+        diagnostics().launchDiagnostics(path);
+
+        return Optional.ofNullable(result.get())
+            .orElse(new ApplyWorkspaceEditResponse(false, "Internal error"));
     }
 }
 ```
 
-### 3.3 CodeAction → Edit: Current State vs Options
-
-#### Current behavior: two-round-trip
-
-```
-Client                    Server
-  |                           |
-  |-- codeAction() ------------→|
-  |    (uri, range)            | getCodeActions() → CodeAction{title, data{uri,range}}
-  |←- [CodeAction{title}] -----|  NO edit field
-  |                           |
-  |-- codeAction/resolve() ----→|
-  |    (unresolved CodeAction)  | applyCodeAction():
-  |                            |   1. psiFile.copy() → oldCopy
-  |                            |   2. action.invoke() on real psiFile
-  |                            |   3. diff oldCopy vs newCopy → TextEdit[]
-  |                            |   4. restore original (setText back)
-  |                            |   5. return WorkspaceEdit
-  |←- CodeAction{edit} --------|  edit set in resolve response
-```
-
-**Problem**: Agent needs two calls and must parse `data` → construct resolve request → parse edit → apply.
-
-#### Option A: Eager CodeAction (recommended for applyEdit integration)
-
-```
-|-- codeAction() ------------→|
-  |    (uri, range)            | getCodeActions():
-  |                            |   for each action:
-  |                            |     psiFile.copy() → oldCopy
-  |                            |     action.invoke() on copy  ← runs on PSI copy
-  |                            |     diff → WorkspaceEdit
-  |                            |     restore original (no side effects)
-  |                            |     CodeAction{title, edit, data}
-  |←- [CodeAction{title,edit}]|
-```
-
-**Pros**: Agent gets edit in one call, can immediately applyEdit. Safe — copy-diff-restore means no permanent changes.
-
-**Cons**: Each action runs twice (once in list, once in resolve if client calls it). Slower response for large action lists. Action that has side effects (writes external state) could behave differently on copy vs original.
-
-**Risk assessment**: The copy-diff-restore pattern (`CodeActionService:214, 326-329`) is already used in `applyCodeAction()`. It works because:
-1. Action runs on real PSI (all PSI-aware fixes work)
-2. File is restored after (`newDoc.setText(oldDoc.getText())`)
-3. Diff is extracted from the side effects that occurred during the action
-
-The risk is that some actions might rely on actual file state. E.g., "Optimize imports" on a copy sees different imports than on the real file. For most quick-fixes (add import, add semicolon), this is fine.
-
-#### Option B: Direct Apply (apply code action on server without extract-then-apply)
-
-Instead of `codeAction → extract WorkspaceEdit → applyEdit`, skip the extract step:
-
-```
-|-- applyCodeAction() --------→|
-  |    (CodeAction{title,data}) | applyCodeAction():
-  |                            |   action.invoke() on REAL psiFile  ← applies immediately
-  |                            |   (no copy, no restore)
-  |                            |   halt diagnostics, re-launch
-  |←- {applied: true} ---------|  return success
-```
-
-**Pros**: Single call. No diff computation. No copy overhead.
-
-**Cons**:
-1. **Irreversible from client perspective**: Agent can't preview the edit before it's applied. LSP spec says client should apply edits from `WorkspaceEdit` — this inverts that contract.
-2. **No edit to share with client**: If client needs the edit for its own state (buffer sync), it's not returned.
-3. **Error handling is harder**: If the action partially fails, the file is already modified. With extract-then-apply, you can retry.
-4. **Undo stack**: IntelliJ's undo shows the edit correctly, but the LSP client has no knowledge of it.
-
-**Viability**: Technically works but breaks the LSP edit contract. The LSP design assumes:
-- Server returns `WorkspaceEdit` to client
-- Client applies edits (knows buffer state, can sync)
-- Client reports `applied: true/false`
-
-The server applying directly bypasses this. It's more like `workspace/executeCommand` than `workspace/applyEdit`.
-
-#### Option C: ExecuteCommand for code actions (bypass applyEdit entirely)
-
-Register code action titles as named commands:
-
-```
-|-- executeCommand() ----------→|
-  |    (command: "idealsp.applyQuickFix", arguments: [title, uri, range])
-  |                            | action.invoke() on real psiFile
-  |                            |   halt diagnostics, re-launch
-  |←- {applied: true} ---------|  return success
-```
-
-**Pros**: No new LSP method needed. `executeCommand` already exists in capability.
-
-**Cons**:
-1. Commands must be registered in `ExecuteCommandOptions` upfront — dynamic registration of code-action names is complex
-2. Client doesn't know which commands exist (no discovery)
-3. Same issue as Option B — no preview, no edit to share
-
-### 3.4 Recommendation
-
-**Option A (eager CodeAction) + Option B (applyEdit) together:**
-
-1. Make `getCodeActions()` return `CodeAction{edit: WorkspaceEdit}` directly (eager). No resolve round-trip needed. The agent gets the edit immediately.
-
-2. Implement `workspace/applyEdit` as a **generic edit application** mechanism that:
-   - Applies any `WorkspaceEdit` (from code-action, rename, or future semantic-replace)
-   - Provides an explicit, auditable apply mechanism
-   - Allows the agent to preview the edit before applying (see edit in JSON, then decide to apply)
-   - Enables error recovery (applyEdit can fail, agent retries)
-
-**Why both?**
-
-- **Option B alone** (direct apply without applyEdit) means: `codeAction → server applies immediately → done`. No preview, no explicit apply step.
-- **Option A + applyEdit** means: `codeAction → see the exact edits → decide to apply → applyEdit`. More steps, but agent has full visibility and control.
-
-For an AI agent, **Option A + applyEdit is better** because:
-1. Agent can examine the edit before applying ("This will add 3 imports and change 2 lines")
-2. Agent can apply multiple edits together (`xlsp apply <combined-edit>`)
-3. Error recovery works (if applyEdit fails, retry the codeAction)
-4. Composable: `xlsp semantic search → applyEdit` doesn't need codeAction at all
-
-**Implementation notes:**
-
-The eager CodeAction approach has one subtle risk: **the copy might not reflect the real file state** at action time. E.g., if the client has unsaved changes (via `didChange`) that IntelliJ's PSI hasn't seen yet, the action on the copy runs on stale PSI.
-
-Mitigation: The server already manages its own document state via `ManagedDocuments`. The copy is from the server's PSI view, which is consistent. `didChange` from the client updates the server's document first.
-
-### 3.5 xlsp CLI Integration
+### 3.3 xlsp CLI Integration
 
 ```bash
-# Apply workspace edit from JSON
-xlsp apply '{"changes": {"file:///path/Foo.java": [{"range": {"start": {"line": 5, "character": 0}, "end": {"line": 5, "character": 0}}, "newText": "import foo.Foo;\n"}]}}'
+# Apply a code action by title
+xlsp apply "Add import 'foo.Foo'" in Foo.java --line 42
 
-# Apply with label (for undo history)
-xlsp apply '<json>' --label "Add missing import"
+# Or pass the full code action response (extracts title, uri, range)
+xlsp apply '<code-action-json>'
 ```
 
-```typescript
-// .opencode/tools/xlsp.ts
-case "apply": {
-    const edits = JSON.parse(args.edits as string)
-    // Pass to server via workspace/applyEdit
-    break
-}
+Output:
+```json
+{"success": true, "applied": true, "operation": "apply"}
 ```
 
-### 3.4 Chain with code-action
+Error:
+```json
+{"success": false, "error": "No action found with title: Add import 'foo.Foo'"}
+```
 
-The full agent workflow becomes:
+### 3.4 Full Agent Workflow
 
 ```
 1. xlsp diagnostics --file Foo.java
    → {severity: "error", message: "Cannot resolve symbol 'Foo'", line: 42}
 
 2. xlsp code-action --file Foo.java --line 42
-   → [{title: "Add import 'foo.Foo'", edit: WorkspaceEdit}]
+   → [{title: "Add import 'foo.Foo'", kind: "quickfix", data: {uri, range}}]
 
-3. xlsp apply '<workspace-edit-json>'
-   → {applied: true}  // server applies edit directly
+3. xlsp apply "Add import 'foo.Foo'" in Foo.java --line 42
+   → {applied: true}  // server finds action by title and invokes it directly
 
 4. xlsp diagnostics --file Foo.java
-   → (error resolved)  // no more error at line 42
+   → (error resolved)
 ```
 
-### 3.5 Relationship to Other Features
+### 3.5 Comparison: Approaches for Applying Code Actions
 
-| Feature | How it works with applyEdit |
-|---------|---------------------------|
-| **code-action** | Returns `WorkspaceEdit` → agent extracts and applies |
-| **rename** | `textDocument/rename` returns `WorkspaceEdit` → same flow |
-| **semantic search + replace** | Future SSR replace returns `WorkspaceEdit` → same flow |
-| **formatting** | `documentFormatting` returns `TextEdit[]` → could use applyEdit too |
+| Aspect | workspace/applyEdit | codeAction/resolve + applyEdit | **codeAction/apply** |
+|--------|--------------------|-------------------------------|----------------------|
+| Edit format | Generic `WorkspaceEdit` | Generic `WorkspaceEdit` | Action identifier |
+| Complexity | High (TextEdit parsing) | High (copy-diff-extract-apply) | **Low (direct invoke)** |
+| Multi-file | ✅ Yes | ✅ Yes | ✅ Yes (action handles it) |
+| PSI-correct | ✅ Yes | ✅ Yes | **✅ Yes (direct on real PSI)** |
+| Preview before apply | ✅ Yes | ✅ Yes | ❌ No (agent must trust title) |
+| No resolve round-trip | ❌ No | ❌ No | **✅ Yes** |
+| Works for non-code-action edits | ✅ Yes | ✅ Yes | ❌ No |
+| Offset calculation needed | Yes | Yes | **No** |
 
-ApplyEdit is the **universal edit primitive** that unifies all edit-producing LSP operations.
+**Decision**: Use **`codeAction/apply`** as the primary mechanism. Simpler, lower effort, more powerful for the specific use case.
 
-## 4. Acceptance Criteria
+## 4. Relationship to `workspace/applyEdit`
 
-1. **`workspace/applyEdit` accepts incremental edits**: Send `{changes: {uri: [TextEdit...]}}` → file modified
-2. **Correct offset calculation**: Edits at line 5 character 10 replace exactly those characters
-3. **Multiple edits per file**: All edits in the list are applied atomically (WriteCommandAction)
-4. **Multiple files**: All files modified in one call
-5. **Undo works**: IntelliJ's undo stack (Ctrl+Z) shows edit as single action with label
-6. **Error reporting**: Applied partially → `failureReason` reports which files failed
-7. **xlsp integration**: `xlsp apply <json>` → server applies, returns `{applied: true/false}`
-8. **Chain with code-action**: Full diagnose → fix → verify loop works without manual editing
-9. **Eager CodeAction**: `codeAction()` returns `CodeAction{edit: WorkspaceEdit}` directly (no resolve round-trip needed)
-10. **Preview before apply**: Agent sees exact edit content before calling `applyEdit`
+### 4.1 When `workspace/applyEdit` Would Be Needed
 
-## 5. Implementation Order
+`codeAction/apply` is specific to code actions. `workspace/applyEdit` would be needed for:
+
+- **Semantic search + replace** (future SSR replace) — produces a `WorkspaceEdit`, not a code action
+- **Rename refactoring** — `textDocument/rename` returns `WorkspaceEdit`
+- **Formatting** — `textDocument/formatting` returns `TextEdit[]`
+- **Generic file modifications** from external tools
+
+### 4.2 Architecture Decision
+
+```
+PRD Phase 1 (this document):
+  codeAction/apply  →  apply code actions only, simple and powerful
+
+Future PRD (separate):
+  workspace/applyEdit  →  generic WorkspaceEdit application
+    - TextEdit parsing + offset calculation
+    - ApplyEditCommand with WriteCommandAction
+    - Multi-file edit support
+    - Composable with rename, formatting, semantic replace
+```
+
+This PRD covers only `codeAction/apply`. `workspace/applyEdit` is a future extension.
+
+## 5. Eager CodeAction: Include Edit in Initial Response
+
+### 5.1 Current State: Two Round-Trips
+
+```
+1. codeAction() → [CodeAction{title, data: {uri, range}}]     ← NO edit
+2. codeAction/resolve() → CodeAction{edit: WorkspaceEdit}  ← edit extracted here
+```
+
+### 5.2 Option: Eager CodeAction (include edit in initial response)
+
+```
+codeAction() → [CodeAction{title, data: {uri, range}, edit: WorkspaceEdit}]
+                                                        ↑ edit in first response
+```
+
+**How**: In `CodeActionService.getCodeActions()`, for each action:
+1. Copy the PSI file
+2. Run action on copy
+3. Diff copy vs original → `WorkspaceEdit`
+4. Restore original (no side effects)
+5. Set `CodeAction.edit = WorkspaceEdit`
+
+**Pros**: Agent sees the edit in one call. `codeAction/apply` becomes optional.
+
+**Cons**: Each action runs on copy → may differ from real file state (see 5.3).
+
+**Risk**: The copy might not reflect unsaved client changes. Mitigation: server manages its own document state via `ManagedDocuments`.
+
+### 5.3 Recommendation
+
+**Add eager CodeAction as an enhancement** but keep `codeAction/apply` for:
+1. Agents that want explicit control ("apply this specific action")
+2. Cases where the agent trusts the action title and just wants it applied
+3. Fallback when eager CodeAction returns no edit (action not available at position)
+
+The workflow becomes:
+```
+codeAction() → Agent sees [title, edit{changes}]  ← eager
+codeAction/apply "Add import"  → applied          ← explicit apply
+```
+
+### 5.4 Eager CodeAction Effort
+
+| Task | Effort | Notes |
+|------|--------|-------|
+| Extract `applyCodeAction()` logic into reusable method | 1h | Already exists, needs extraction |
+| Run on copy in `getCodeActions()`, return edit | 2h | Per-action copy-diff-restore |
+| Tests | 1h | |
+| **Total** | **~4h** | |
+
+## 6. Acceptance Criteria
+
+1. **`idealsp/codeActionApply`**: Send `{title, uri, range}` → server applies action, returns `{applied: true/false}`
+2. **Action matching by title**: Server finds the correct action among all available at that position
+3. **Direct PSI invocation**: Action runs on real PSI (no copy), all PSI-aware fixes work correctly
+4. **Diagnostic refresh**: After apply, diagnostics halt and re-launch for affected file(s)
+5. **Error reporting**: Action not found → `failureReason` with message; partial failure → details
+6. **Undo works**: IntelliJ's undo stack (Ctrl+Z) shows the edit with the action title
+7. **xlsp integration**: `xlsp apply "<title>" in <file> --line N` → applied result
+8. **Eager CodeAction** (enhancement): `codeAction()` returns `CodeAction{edit}` in first response
+9. **No manual editing**: Full diagnose → apply → verify loop works without the agent touching file coordinates
+
+## 7. Implementation Order
 
 | Phase | Task | Dependencies |
-|-------|------|-------------|
-| 1 | `ApplyEditCommand.java` — core logic | None |
-| 2 | Register in `LspServer` workspace service | Phase 1 |
-| 3 | Wire `applyEdit()` in `MyTextDocumentService` | Phase 2 |
-| 4 | **Eager CodeAction**: make `getCodeActions()` return edit directly (copy-diff-restore per action) | Phase 3 |
-| 5 | xlsp CLI `apply` operation | Phase 4 |
-| 6 | Python integration test: applyEdit standalone | Phase 5 |
-| 7 | Chain test: diagnostics → code-action (eager) → applyEdit → diagnostics | Phase 6 |
+|-------|------|---------------|
+| 1 | `CodeActionApplyCommand.java` — direct invoke on real PSI | None |
+| 2 | Register `idealsp/codeActionApply` in `IdeaLspServer` | Phase 1 |
+| 3 | xlsp CLI `apply` operation | Phase 2 |
+| 4 | Python integration test | Phase 3 |
+| 5 | **Eager CodeAction**: extract apply logic, run on copy in `getCodeActions()` | Phase 2 |
+| 6 | Chain test: diagnostics → code-action → apply → diagnostics | Phase 4 |
+| Future | `workspace/applyEdit` — generic WorkspaceEdit application for rename, semantic replace, etc. | Separate PRD |
