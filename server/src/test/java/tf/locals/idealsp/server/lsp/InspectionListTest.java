@@ -106,6 +106,57 @@ public class InspectionListTest extends LspServerTestBase {
         Assert.assertTrue("Expected empty result for non-existent inspection", diagnostics.isEmpty());
     }
 
+    @Test
+    public void runByNameOnAllFiles() {
+        var params = new InspectionRunByNameParams();
+        params.setName("UNUSED_IMPORT");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        System.out.println("runByNameOnAllFiles found " + diagnostics.size() + " diagnostics across all files");
+    }
+
+    @Test
+    public void runByNameOnAllFilesWithUnusedMethod() {
+        var params = new InspectionRunByNameParams();
+        params.setName("unused");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        System.out.println("runByNameOnAllFilesWithUnusedMethod found " + diagnostics.size() + " diagnostics");
+        if (diagnostics.size() > 0) {
+            diagnostics.forEach(d -> System.out.println("  - " + d.getMessage()));
+        }
+    }
+
+    @Test
+    public void runByNameFindsUnusedImportInSingleFile() {
+        var filePath = LspPath.fromLocalPath(getProjectPath().resolve("src/UnusedImportFixture.java"));
+        var fileUri = filePath.toLspUri();
+
+        sendOpen(filePath);
+
+        var params = new InspectionRunByNameParams(
+                new TextDocumentIdentifier(fileUri), "UNUSED_IMPORT");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        System.out.println("runByNameFindsUnusedImportInSingleFile found " + diagnostics.size() + " diagnostics");
+        if (diagnostics.size() > 0) {
+            diagnostics.forEach(d -> System.out.println("  - " + d.getMessage()));
+        }
+    }
+
+    @Test
+    public void runByNameOnAllFilesNonexistentInspection() {
+        var params = new InspectionRunByNameParams();
+        params.setName("zzzthisdoesnotexist");
+        var diagnostics = server().inspectionRunByName(params).join();
+
+        Assert.assertNotNull("Diagnostics should not be null", diagnostics);
+        Assert.assertTrue("Expected empty result for non-existent inspection", diagnostics.isEmpty());
+    }
+
     private void sendOpen(LspPath filePath) {
         var fileText = MiscUtil.makeThrowsUnchecked(() -> Files.readString(filePath.toPath()));
         server().getTextDocumentService().didOpen(

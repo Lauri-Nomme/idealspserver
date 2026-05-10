@@ -305,7 +305,16 @@ it.setCallHierarchyProvider(true);
         LOG.warn("inspectionRunByName() called but project is not yet initialized");
         return CompletableFuture.completedFuture(List.of());
       }
-      var path = LspPath.fromLspUri(params.getTextDocument().getUri());
+      var textDoc = params.getTextDocument();
+      if (textDoc == null || textDoc.getUri() == null || textDoc.getUri().isEmpty()) {
+        return CompletableFuture.supplyAsync(() -> {
+          return ApplicationManager.getApplication().runReadAction(
+              (com.intellij.openapi.util.Computable<List<org.eclipse.lsp4j.Diagnostic>>) () -> {
+                return project.getService(InspectionService.class).runByNameOnAllFiles(params.getName());
+              });
+        });
+      }
+      var path = LspPath.fromLspUri(textDoc.getUri());
       return CompletableFuture.supplyAsync(() -> {
         return ApplicationManager.getApplication().runReadAction(
             (com.intellij.openapi.util.Computable<List<org.eclipse.lsp4j.Diagnostic>>) () -> {

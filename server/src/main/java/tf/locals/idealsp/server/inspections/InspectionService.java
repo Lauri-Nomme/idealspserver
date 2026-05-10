@@ -17,6 +17,9 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ContentIterator;
+import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.psi.PsiManager;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
@@ -161,6 +164,84 @@ final public class InspectionService {
         LOG.info("runByName: " + name + " found " + result.size() + " problems" +
                 (effectiveProfile != null ? " [single-tool profile]" : " [filter mode]"));
         return result;
+    }
+
+    @NotNull
+    public List<Diagnostic> runByNameOnAllFiles(@NotNull String name) {
+        LOG.info("runByNameOnAllFiles: starting for inspection '" + name + "'");
+        InspectionToolWrapper<?, ?> wrapper = lookupWrapper(name);
+        if (wrapper == null) {
+            LOG.warn("runByNameOnAllFiles: inspection not found: " + name);
+            return List.of();
+        }
+
+        InspectionProfileImpl rootProfile = InspectionProfileManager.getInstance(project).getCurrentProfile();
+        var singleProfile = new InspectionProfileImpl(
+                wrapper.getDisplayName(),
+                new InspectionToolsSupplier.Simple(Collections.singletonList(wrapper)),
+                rootProfile);
+        final InspectionProfileImpl effectiveProfile = singleProfile;
+
+        var allDiags = new ArrayList<Diagnostic>();
+        var fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+        var psiManager = PsiManager.getInstance(project);
+        LOG.info("runByNameOnAllFiles: iterating files in project content");
+
+        var filesProcessed = new java.util.concurrent.atomic.AtomicInteger(0);
+        fileIndex.iterateContent((ContentIterator) fileOrDir -> {
+            ProgressManager.checkCanceled();
+            if (fileOrDir.isDirectory()) return true;
+
+            PsiFile psiFile = ReadAction.compute(() -> psiManager.findFile(fileOrDir));
+            if (psiFile == null) return true;
+
+            var doc = FileDocumentManager.getInstance().getDocument(fileOrDir);
+            if (doc == null) return true;
+
+            var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
+            var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
+            var range = ProperTextRange.create(0, doc.getTextLength());
+
+            var progress = new DaemonProgressIndicator();
+            progress.start();
+
+            var diagsRef = new AtomicReference<List<Diagnostic>>();
+            ProgressManager.getInstance().runProcess(() -> {
+                Runnable highlightRunner = () -> {
+                    var highlights = new ArrayList<HighlightInfo>();
+                    HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+                        try {
+                            var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+                            if (all != null) highlights.addAll(all);
+                        } catch (Exception ex) {
+                            LOG.warn("runMainPasses error", ex);
+                        }
+                    });
+                    diagsRef.set(extractDiagnostics(highlights, doc, name));
+                };
+
+                if (effectiveProfile != null) {
+                    try {
+                        InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
+                                __ -> new InspectionProfileWrapper(effectiveProfile),
+                                highlightRunner);
+                    } catch (Exception e) {
+                        LOG.warn("runByNameOnAllFiles: single-profile daemon failed for " + name + ", falling back to filter mode", e);
+                        highlightRunner.run();
+                    }
+                } else {
+                    highlightRunner.run();
+                }
+            }, progress);
+
+            var result = diagsRef.get();
+            if (result != null) allDiags.addAll(result);
+            filesProcessed.incrementAndGet();
+            return true;
+        });
+
+        LOG.info("runByNameOnAllFiles: processed " + filesProcessed.get() + " files, found " + allDiags.size() + " problems across all files");
+        return allDiags;
     }
 
     @NotNull

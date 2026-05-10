@@ -42,6 +42,30 @@ export async function runInspection(
   }))
 }
 
+export async function runInspectionOnAllFiles(
+  client: LspClient,
+  name: string,
+  workRoot: string
+): Promise<any[]> {
+  // Wait for indexing before running inspection
+  await client.waitForIndexing(10)
+  const resp = await client.sendRequest("$/inspection/runByName", {
+    textDocument: null,
+    name,
+  }, 120_000)
+  const raw = resp?.result || []
+  if (!Array.isArray(raw)) return []
+  return raw.map((d: any) => ({
+    severity: severityName(d.severity),
+    message: d.message,
+    code: d.code,
+    line: d.range?.start?.line,
+    character: d.range?.start?.character,
+    endLine: d.range?.end?.line,
+    endCharacter: d.range?.end?.character,
+  }))
+}
+
 function severityName(n: number): string {
   switch (n) {
     case 1: return "error"

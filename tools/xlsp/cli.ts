@@ -13,7 +13,7 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
-import { listInspections, runInspection } from "./operations/inspect"
+import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
 
 interface Output {
   success: boolean
@@ -303,6 +303,15 @@ async function main() {
         const results = await runInspection(client, file, symbol, wsRoot)
         if (ctxLines) await addContext(results, ctxLines)
         printJson(ok(operation, results, symbol, file))
+        break
+      }
+
+      case "inspect-all":
+      case "insp-all": {
+        if (!symbol) { printJson(fail(operation, "inspection name required", "Use 'xlsp inspect-list' to discover available inspections")); return }
+        const results = await runInspectionOnAllFiles(client, symbol, wsRoot)
+        if (ctxLines) await addContext(results, ctxLines)
+        printJson(ok(operation, results, symbol))
         break
       }
 
