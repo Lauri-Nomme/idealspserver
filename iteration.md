@@ -193,3 +193,9 @@ cd /vokk/home/lauri/dev/idealspserver/git/server
 # Run specific test method
 ./gradlew test --tests "tf.locals.idealsp.server.lsp.ReferencesTest.testReferences" --no-daemon
 ```
+
+## Logging Guidelines
+
+- **ALWAYS use `LOG.warn()` for logging** - never `LOG.info()`. This ensures logs are visible in production.
+- Add logging when debugging to track code flow and identify issues
+- Check logs with: `journalctl --user -u idealsp.service --no-pager | grep -iE '(error|warn)'`

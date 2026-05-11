@@ -32,5 +32,35 @@ export async function getCodeActions(
     title: a.title,
     kind: a.kind,
     isPreferred: a.isPreferred,
+    data: a.data,
   }))
+}
+
+export interface CodeActionData {
+  uri: string
+  range: {
+    start: { line: number; character: number }
+    end: { line: number; character: number }
+  }
+}
+
+export async function applyCodeAction(
+  client: LspClient,
+  title: string,
+  uri: string,
+  range: { start: { line: number; character: number }; end: { line: number; character: number } }
+): Promise<{ applied: boolean; failureReason?: string }> {
+  const resp = await client.sendRequest("idealsp/codeActionApply", {
+    title,
+    uri,
+    range,
+  }, 30_000)
+
+  if (resp?.result) {
+    return {
+      applied: resp.result.applied,
+      failureReason: resp.result.failureReason,
+    }
+  }
+  return { applied: false, failureReason: resp?.error?.message }
 }

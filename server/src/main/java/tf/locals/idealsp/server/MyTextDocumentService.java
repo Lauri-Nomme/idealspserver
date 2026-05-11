@@ -149,12 +149,12 @@ public class MyTextDocumentService implements TextDocumentService {
 
   @Override
   public CompletableFuture<List<Either<Command, CodeAction>>> codeAction(CodeActionParams params) {
-    return CompletableFuture.completedFuture(
-        codeActions().getCodeActions(
-            LspPath.fromLspUri(params.getTextDocument().getUri()),
-            params.getRange()
-        ).stream().map((Function<CodeAction, Either<Command, CodeAction>>) Either::forRight).collect(Collectors.toList())
-    );
+    return codeActions().getCodeActionsAsync(
+        LspPath.fromLspUri(params.getTextDocument().getUri()),
+        params.getRange()
+    ).thenApply(actions -> actions.stream()
+        .map((Function<CodeAction, Either<Command, CodeAction>>) Either::forRight)
+        .collect(Collectors.toList()));
   }
 
 

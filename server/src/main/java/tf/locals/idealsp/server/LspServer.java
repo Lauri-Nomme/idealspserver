@@ -26,6 +26,8 @@ import tf.locals.idealsp.server.inspections.InspectionInfo;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
 import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
 import tf.locals.idealsp.server.inspections.InspectionService;
+import tf.locals.idealsp.server.codeactions.CodeActionApplyCommand;
+import tf.locals.idealsp.server.codeactions.CodeActionApplyParams;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -280,6 +282,21 @@ it.setCallHierarchyProvider(true);
     } catch (Exception e) {
       LOG.error("dataFlowTo() failed", e);
       return MiscUtil.failed("dataflowTo", e.getMessage());
+    }
+  }
+
+  public CompletableFuture<org.eclipse.lsp4j.ApplyWorkspaceEditResponse> codeActionApply(
+          @NotNull CodeActionApplyParams params) {
+    try {
+      var project = getProject();
+      return new CodeActionApplyCommand(
+              params.getTitle(),
+              LspPath.fromLspUri(params.getUri()),
+              params.getRange()
+      ).runAsync(project, LspPath.fromLspUri(params.getUri()));
+    } catch (Exception e) {
+      LOG.error("codeActionApply() failed", e);
+      return MiscUtil.failed("codeActionApply", e.getMessage());
     }
   }
 
