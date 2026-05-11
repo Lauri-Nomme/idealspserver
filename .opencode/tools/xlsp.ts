@@ -4,7 +4,7 @@ export default tool({
   description: "Symbol-first LSP operations — find definitions, references, hover, diagnostics, call hierarchy, etc. without needing line/column coordinates. Use 'status' to check server/project health.",
   args: {
     operation: tool.schema
-      .enum(["status", "define", "references", "hover", "complete", "symbols", "diagnostics", "implement", "type-def", "signature", "actions", "calls", "dataflow", "inspect-list", "inspect", "inspect-all"])
+      .enum(["status", "define", "references", "hover", "complete", "symbols", "diagnostics", "implement", "type-def", "signature", "actions", "apply", "calls", "dataflow", "inspect-list", "inspect", "inspect-all"])
       .describe("LSP operation to perform"),
     symbol: tool.schema
       .string()

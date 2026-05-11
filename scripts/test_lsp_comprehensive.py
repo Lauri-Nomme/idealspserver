@@ -821,6 +821,32 @@ def test_all():
         err = resp.get("error") if resp else None
         print(f"29. Inspection runByName (null textDocument): FAILED (error={err})")
 
+# ============================================
+    # Code Action Apply Test
+    # ============================================
+    # Use LspServer.java which is already open from test 13 and indexed
+    apply_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
+
+    # Get code actions - should return (not hang) since file is already open
+    resp = send_and_recv(
+        sock,
+        "textDocument/codeAction",
+        {
+            "textDocument": {"uri": f"file://{apply_test_file}"},
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 100, "character": 0}},
+            "context": {"diagnostics": []}
+        },
+        30,
+    )
+    if resp and "result" in resp:
+        actions = resp["result"]
+        if actions:
+            print(f"30. Code Actions: OK - Found {len(actions)} actions")
+        else:
+            print(f"30. Code Actions: OK - No actions at this location")
+    else:
+        print(f"30. Code Actions: FAILED - no response")
+
     sock.close()
     print("\n=== All tests completed ===")
 

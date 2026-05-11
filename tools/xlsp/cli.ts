@@ -10,7 +10,7 @@ import { getDiagnostics } from "./operations/diagnostics"
 import { getImplementations } from "./operations/implement"
 import { getTypeDefinition } from "./operations/type-def"
 import { getSignatureHelp } from "./operations/signature"
-import { getCodeActions } from "./operations/actions"
+import { getCodeActions, applyCodeAction } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
 import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
@@ -25,6 +25,8 @@ interface Output {
   count?: number
   results?: any[]
   tree?: any[]
+  applied?: boolean
+  failureReason?: string
 }
 
 function fail(operation: string, error: string, hint?: string): Output {
@@ -261,6 +263,45 @@ async function main() {
       case "act": {
         const results = await getCodeActions(client, file || symbol, wsRoot)
         printJson(ok(operation, results, undefined, file || symbol))
+        break
+      }
+
+      case "apply": {
+        if (!file) { printJson(fail(operation, "file required", "Use 'xlsp actions <file>' to get action titles first")); return }
+        if (!symbol) { printJson(fail(operation, "action title required", "Specify the action title to apply")); return }
+        const absPath = file.startsWith("/") ? file : `${wsRoot}/${file}`
+        const uri = `file://${absPath}`
+        const text = await Bun.file(absPath).text()
+        const lines = text.split("\n")
+        client.sendNotification("textDocument/didOpen", {
+          textDocument: { uri, languageId: "java", version: 1, text },
+        })
+        await client.drainNotifications(5000)
+        const actionsResp = await client.sendRequest("textDocument/codeAction", {
+          textDocument: { uri },
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: lines.length - 1, character: lines[lines.length - 1].length },
+          },
+          context: { diagnostics: [] },
+        }, 15_000)
+        client.sendNotification("textDocument/didClose", { textDocument: { uri } })
+        const actions = actionsResp?.result || []
+        const action = actions.find((a: any) => a.title === symbol)
+        if (!action) {
+          printJson(fail(operation, "action not found", `Action "${symbol}" not available at this location`))
+          break
+        }
+        const data = action.data ? JSON.parse(action.data) : { uri, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }
+        const result = await applyCodeAction(client, symbol, data.uri, data.range)
+        printJson({
+          success: true,
+          operation: "apply",
+          query: symbol,
+          file,
+          applied: result.applied,
+          failureReason: result.failureReason,
+        })
         break
       }
 

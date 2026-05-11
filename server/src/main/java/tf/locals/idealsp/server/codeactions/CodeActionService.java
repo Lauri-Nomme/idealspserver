@@ -30,6 +30,7 @@ import tf.locals.idealsp.server.util.MiscUtil;
 import tf.locals.idealsp.server.util.TextUtil;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -112,85 +113,103 @@ public final class CodeActionService {
   @NotNull
   private static <T> Predicate<T> distinctByKey(@NotNull Function<? super T, ?> keyExtractor) {
     Set<Object> seen = new HashSet<>();
-    return t -> seen.add(keyExtractor.apply(t));
+return t -> seen.add(keyExtractor.apply(t));
   }
 
   @NotNull
-  public List<CodeAction> getCodeActions(@NotNull LspPath path, @NotNull Range range) {
-
-    var result = new Ref<List<CodeAction>>();
-    ApplicationManager.getApplication().invokeAndWait(
-        () -> MiscUtil.invokeWithPsiFileInReadAction(project, path, (file) -> {
-          final var disposable = Disposer.newDisposable();
-
-          try {
-            EditorUtil.withEditor(disposable, file, range.getStart(), (editor) -> {
-              Object actionInfo;
-              try {
-                var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
-                    com.intellij.openapi.editor.Editor.class, 
-                    com.intellij.psi.PsiFile.class, 
-                    boolean.class);
-                actionInfo = method.invoke(null, editor, file, true);
-              } catch (Exception e) {
-                try {
-                  var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
-                      com.intellij.openapi.editor.Editor.class, 
-                      com.intellij.psi.PsiFile.class);
-                  actionInfo = method.invoke(null, editor, file);
-                } catch (Exception e2) {
-                  actionInfo = null;
+  public CompletableFuture<List<CodeAction>> getCodeActionsAsync(@NotNull LspPath path, @NotNull Range range) {
+    LOG.warn("getCodeActionsAsync: " + path + " range=" + range);
+    return CompletableFuture.supplyAsync(() -> {
+      List<CodeAction> result = new ArrayList<>();
+      try {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          MiscUtil.invokeWithPsiFileInReadAction(project, path, (file) -> {
+            LOG.warn("  getCodeActionsAsync: file=" + file.getName());
+            var disposable = Disposer.newDisposable();
+            try {
+              EditorUtil.withEditor(disposable, file, range.getStart(), (editor) -> {
+                LOG.warn("  getCodeActionsAsync: editor=" + (editor != null ? "ok" : "null"));
+                if (editor == null) {
+                  return;
                 }
-              }
+                Object actionInfo;
+                try {
+                  var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
+                      com.intellij.openapi.editor.Editor.class,
+                      com.intellij.psi.PsiFile.class,
+                      boolean.class);
+                  actionInfo = method.invoke(null, editor, file, true);
+                } catch (Exception e) {
+                  try {
+                    var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
+                        com.intellij.openapi.editor.Editor.class,
+                        com.intellij.psi.PsiFile.class);
+                    actionInfo = method.invoke(null, editor, file);
+                  } catch (Exception e2) {
+                    actionInfo = null;
+                  }
+                }
 
-              if (actionInfo == null) {
-                result.set(Collections.emptyList());
-                return;
-              }
+                LOG.warn("  getCodeActionsAsync: actionInfo=" + (actionInfo != null ? "ok" : "null"));
+                if (actionInfo == null) {
+                  return;
+                }
 
-              java.util.Collection<?> errorFixes = Collections.emptyList();
-              java.util.Collection<?> inspectionFixes = Collections.emptyList();
-              java.util.Collection<?> intentions = Collections.emptyList();
-              
-              try {
-                var errorFixesField = actionInfo.getClass().getField("errorFixesToShow");
-                var inspectionFixesField = actionInfo.getClass().getField("inspectionFixesToShow");
-                var intentionsField = actionInfo.getClass().getField("intentionsToShow");
-                errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo);
-                inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo);
-                intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
-              } catch (Exception ignored) {}
+                java.util.Collection<?> errorFixes = Collections.emptyList();
+                java.util.Collection<?> inspectionFixes = Collections.emptyList();
+                java.util.Collection<?> intentions = Collections.emptyList();
 
-              // Force-initialize lazy ModCommandActionWrapper descriptors (IntelliJ 2026.1)
-              final var quickFixDescriptors = diagnostics().getQuickFixes(path, range);
-              Stream.of(quickFixDescriptors, errorFixes, inspectionFixes, intentions)
-                  .flatMap(Collection::stream)
-                  .forEach(d -> tryInitDescriptor(d, project, editor, file));
+                try {
+                  var errorFixesField = actionInfo.getClass().getField("errorFixesToShow");
+                  var inspectionFixesField = actionInfo.getClass().getField("inspectionFixesToShow");
+                  var intentionsField = actionInfo.getClass().getField("intentionsToShow");
+                  errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo);
+                  inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo);
+                  intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
+                } catch (Exception ignored) {}
 
-              final var quickFixes = quickFixDescriptors.stream()
-                  .map(it -> toCodeAction(path, range, it, CodeActionKind.QuickFix))
-                  .filter(Objects::nonNull);
+                LOG.warn("  getCodeActionsAsync: errorFixes=" + errorFixes.size() + " inspectionFixes=" + inspectionFixes.size() + " intentions=" + intentions.size());
 
-              final var intentionActions = Stream.of(errorFixes, inspectionFixes, intentions)
-                  .flatMap(Collection::stream)
-                  .map(it -> toCodeAction(path, range, it, CodeActionKind.Refactor))
-                  .filter(Objects::nonNull);
+                final var quickFixDescriptors = diagnostics().getQuickFixes(path, range);
+                LOG.warn("  getCodeActionsAsync: quickFixDescriptors=" + quickFixDescriptors.size());
 
-              final var actions = Stream.concat(quickFixes, intentionActions)
-                  .filter(distinctByKey(CodeAction::getTitle))
-                  .collect(Collectors.toList());
+                Stream.of(quickFixDescriptors, errorFixes, inspectionFixes, intentions)
+                    .flatMap(Collection::stream)
+                    .forEach(d -> tryInitDescriptor(d, project, editor, file));
 
-              result.set(actions);
-            });
-          } catch (Exception e) {
-            LOG.warn("getCodeActions error: " + e);
-            result.set(Collections.emptyList());
-          } finally {
-            Disposer.dispose(disposable);
-          }
-        }));
+                final var quickFixes = quickFixDescriptors.stream()
+                    .map(it -> toCodeAction(path, range, it, CodeActionKind.QuickFix))
+                    .filter(Objects::nonNull);
 
-    return Optional.ofNullable(result.get()).orElse(Collections.emptyList());
+                final var intentionActions = Stream.of(errorFixes, inspectionFixes, intentions)
+                    .flatMap(Collection::stream)
+                    .map(it -> toCodeAction(path, range, it, CodeActionKind.Refactor))
+                    .filter(Objects::nonNull);
+
+                result.addAll(Stream.concat(quickFixes, intentionActions)
+                    .filter(distinctByKey(CodeAction::getTitle))
+                    .collect(Collectors.toList()));
+                
+                LOG.warn("  getCodeActionsAsync: result size=" + result.size());
+              });
+            } catch (Exception e) {
+              LOG.warn("getCodeActions error: " + e, e);
+            } finally {
+              Disposer.dispose(disposable);
+            }
+          });
+        });
+      } catch (Exception e) {
+        LOG.warn("getCodeActions exception: " + e, e);
+      }
+      return result;
+    }, com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService());
+  }
+
+  @Deprecated
+  @NotNull
+  public List<CodeAction> getCodeActions(@NotNull LspPath path, @NotNull Range range) {
+    return new ArrayList<>();
   }
 
   @NotNull
