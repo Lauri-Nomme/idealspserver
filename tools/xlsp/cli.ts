@@ -13,6 +13,7 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions, applyCodeAction } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
+import { semanticSearch } from "./operations/semantic"
 import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
 
 interface Output {
@@ -111,7 +112,7 @@ async function main() {
   const port = parseInt(args.port as string) || 8989
 
   if (positional.length < 1) {
-    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--wait] [--context N] [--severity error|warn|info|hint]"))
+    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--wait] [--context N] [--severity error|warn|info|hint] [--constraint $Var.key=val] [--lang java] [--scope project|file]"))
     process.exit(1)
   }
 
@@ -356,8 +357,62 @@ async function main() {
         break
       }
 
+      case "semantic":
+      case "sem": {
+        if (!symbol) { printJson(fail(operation, "pattern required", "Specify an SSR pattern like 'methods returning Optional'")); return }
+        const scope = (args.scope as string) || "project"
+        const lang = (args.lang as string) || "java"
+        const absFile = file ? (file.startsWith("/") ? file : `${wsRoot}/${file}`) : undefined
+
+        // Parse --constraint args: --constraint $ReturnType.type=Optional --constraint $MethodName.regex=get.*
+        const constraints: Record<string, Record<string, string>> = {}
+        const rawConstraints = Array.isArray(args.constraint) ? args.constraint : args.constraint ? [args.constraint] : []
+        for (const c of rawConstraints) {
+          const dotIdx = c.indexOf(".")
+          const eqIdx = c.indexOf("=")
+          if (dotIdx < 0 || eqIdx < 0) continue
+          const varName = c.slice(0, dotIdx)
+          const key = c.slice(dotIdx + 1, eqIdx)
+          const value = c.slice(eqIdx + 1)
+          if (!constraints[varName]) constraints[varName] = {}
+          constraints[varName][key] = value
+        }
+
+        let raw: any[]
+        try {
+          raw = await semanticSearch(client, symbol, scope, absFile, lang, constraints)
+        } catch (e: any) {
+          printJson(fail(operation, e.message || String(e),
+              "Supported constraint keys for --constraint $VarName.key=value:\n" +
+              "  regex, text         - regex/text filter on the variable match\n" +
+              "  notRegex, notText   - inverted regex filter\n" +
+              "  type, exprType      - expression type filter (e.g. java.util.Optional)\n" +
+              "  notType, notExprType - inverted expression type filter\n" +
+              "  formalType, argType  - formal argument type filter\n" +
+              "  within              - within constraint (e.g. class, method)\n" +
+              "  contains            - contains constraint\n" +
+              "  context, target     - context/target constraint\n" +
+              "  minCount, min       - minimum occurrences\n" +
+              "  maxCount, max       - maximum occurrences\n" +
+              "  reference           - reference constraint\n" +
+              "  script              - Groovy script constraint"))
+          return
+        }
+        const results = raw.map((m: any) => ({
+          file: (m.uri || "").replace(/^file:\/\//, ""),
+          line: m.start?.line,
+          character: m.start?.character,
+          endLine: m.end?.line,
+          endCharacter: m.end?.character,
+          matchedText: m.matchedText,
+        }))
+        if (ctxLines) await addContext(results, ctxLines)
+        printJson(ok(operation, results, symbol, file))
+        break
+      }
+
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow, inspect-list"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow, inspect-list, semantic"))
     }
 
     client.sendNotification("shutdown", {})

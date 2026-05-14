@@ -847,6 +847,74 @@ def test_all():
     else:
         print(f"30. Code Actions: FAILED - no response")
 
+    # Semantic search (structural search)
+    semantic_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/LspServer.java")
+    semantic_file_content = open(semantic_test_file, "r").read()
+
+    # Open the test file
+    send_notification(sock, "textDocument/didOpen", {
+        "textDocument": {"uri": f"file://{semantic_test_file}", "languageId": "java", "version": 1, "text": semantic_file_content}
+    })
+    drain_notifications(sock, 5)
+
+    # Basic semantic search - find all field declarations
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {"pattern": "$Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}"},
+        31,
+    )
+    if resp and "result" in resp and len(resp["result"]) > 0:
+        print(f"31. Semantic Search: OK - Found {len(resp['result'])} field matches")
+    else:
+        print(f"31. Semantic Search: FAILED - no results")
+        if resp and "error" in resp:
+            print(f"     Error: {resp['error']}")
+
+    # Semantic search with valid constraint
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "Logger"}},
+        },
+        32,
+    )
+    if resp and "result" in resp:
+        matched = len(resp["result"]) if resp["result"] else 0
+        if matched > 0:
+            print(f"32. Semantic Search with constraint: OK - Found {matched} Logger fields")
+        else:
+            print(f"32. Semantic Search with constraint: OK - No Logger fields in file")
+    else:
+        print(f"32. Semantic Search with constraint: FAILED - no response")
+        if resp and "error" in resp:
+            print(f"     Error: {resp['error']}")
+
+    # Semantic search with invalid constraint - should return error with help text
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"foo": "bar"}},
+        },
+        33,
+    )
+    if resp and "error" in resp:
+        print(f"33. Semantic Search invalid constraint: OK - got error")
+    elif resp and "result" in resp:
+        print(f"33. Semantic Search invalid constraint: FAILED - expected error but got results")
+    else:
+        print(f"33. Semantic Search invalid constraint: FAILED - no response")
+
     sock.close()
     print("\n=== All tests completed ===")
 
