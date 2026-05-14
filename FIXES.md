@@ -174,24 +174,10 @@ assertEquals(List.of(new WorkspaceSymbol("WorkspaceSymbolIntegratingTest", Symbo
 
 ---
 
-### 7. `RenameTest.rename`
+### 7. `RenameTest.rename` ✅ FIXED
 
-**Current state:** `assertNotNull` only.
-
-**Probe output:**
-```
-result=WorkspaceEdit [ changes = {}  documentChanges = null  changeAnnotations = null ]
-```
-
-**Root cause:** `MyTextDocumentService.rename()` currently has a stub implementation that
-returns a `WorkspaceEdit` with no content.  The `RenameCommand` implementation needs to be
-wired up.
-
-File: `MyTextDocumentService.java` — stub `rename()` override.
-
-**Fix:** Implement `RenameCommand` (or wire the existing one) and confirm it returns a proper
-`WorkspaceEdit` for the `RenameIntegrationTest.java` test file.  Restore the original assertion
-checking that renames are applied across all references.
+**Status:** Fixed — `RenameCommand` uses `RenameProcessor` which correctly computes
+declaration + usage edits. The test already had the full `assertEquals` assertion and passes.
 
 ---
 
@@ -270,7 +256,7 @@ complexity fix and should be tackled last.
 3. `WorkspaceSymbolServiceTest.doSearch` cast fix — trivial, fixes #3
 4. Kotlin EDT — move traversal off EDT, fixes #8
 5. `SymbolTest.workspaceSymbol` investigation — fixes #6
-6. `RenameCommand` implementation — fixes #7
+6. ✅ `RenameCommand` implementation — **FIXED** — fixes #7, RenameProcessor-based implementation working
 7. `FormattingTest` formatter availability — fixes #9
 8. `CompletionTest` PSI copy invalidation — fixes #10 (most complex)
 
