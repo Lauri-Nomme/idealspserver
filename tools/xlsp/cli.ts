@@ -13,7 +13,7 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions, applyCodeAction } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
-import { semanticSearch } from "./operations/semantic"
+import { semanticSearch, buildPattern } from "./operations/semantic"
 import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
 
 interface Output {
@@ -359,13 +359,22 @@ async function main() {
 
       case "semantic":
       case "sem": {
-        if (!symbol) { printJson(fail(operation, "pattern required", "Specify an SSR pattern like 'methods returning Optional'")); return }
+        if (!symbol) { printJson(fail(operation, "pattern required",
+            "Natural language: 'fields of type X', 'methods returning X', 'methods named X', " +
+            "'catch blocks catching X', 'null checks', 'new X'. " +
+            "Raw SSR: '$Type$ $FieldName$;'")); return }
         const scope = (args.scope as string) || "project"
         const lang = (args.lang as string) || "java"
         const absFile = file ? (file.startsWith("/") ? file : `${wsRoot}/${file}`) : undefined
 
+        // Translate natural language to SSR pattern if not already a raw pattern
+        const query = symbol
+        const { pattern, constraints: generatedConstraints } = query.includes("$")
+            ? { pattern: query, constraints: undefined }
+            : buildPattern(query)
+
         // Parse --constraint args: --constraint $ReturnType.type=Optional --constraint $MethodName.regex=get.*
-        const constraints: Record<string, Record<string, string>> = {}
+        const constraints: Record<string, Record<string, string>> = { ...generatedConstraints }
         const rawConstraints = Array.isArray(args.constraint) ? args.constraint : args.constraint ? [args.constraint] : []
         for (const c of rawConstraints) {
           const dotIdx = c.indexOf(".")
@@ -380,7 +389,7 @@ async function main() {
 
         let raw: any[]
         try {
-          raw = await semanticSearch(client, symbol, scope, absFile, lang, constraints)
+          raw = await semanticSearch(client, pattern, scope, absFile, lang, constraints)
         } catch (e: any) {
           printJson(fail(operation, e.message || String(e),
               "Supported constraint keys for --constraint $VarName.key=value:\n" +
