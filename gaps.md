@@ -98,7 +98,7 @@ This changes O(hours) of manual searching into seconds of precise operations.
 | Feature | Status | Test Result |
 |--------|--------|----------|
 | Initialize | ✅ Working | OK |
-| Document Symbols | ✅ Working | 1+ symbols found |
+| Document Symbols | ✅ Working | 1+ symbols found; xlsp symbols --file with --kind/--visibility/--tree filters |
 | Workspace Symbols | ✅ Working | 43 symbols found |
 | Definition | ✅ Working | 1+ locations |
 | Hover | ✅ Working | OK |

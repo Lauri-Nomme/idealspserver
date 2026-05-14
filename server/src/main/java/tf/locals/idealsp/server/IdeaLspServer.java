@@ -7,6 +7,8 @@ import tf.locals.idealsp.server.dataflow.DataFlowParams;
 import tf.locals.idealsp.server.inspections.InspectionInfo;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
 import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
+import tf.locals.idealsp.server.semantic.SemanticMatch;
+import tf.locals.idealsp.server.semantic.SemanticSearchParams;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -24,4 +26,7 @@ public interface IdeaLspServer extends LanguageServer {
 
     @JsonRequest("$/inspection/runByName")
     CompletableFuture<List<org.eclipse.lsp4j.Diagnostic>> inspectionRunByName(InspectionRunByNameParams params);
+
+    @JsonRequest("textDocument/semanticSearch")
+    CompletableFuture<List<SemanticMatch>> semanticSearch(SemanticSearchParams params);
 }

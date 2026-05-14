@@ -28,6 +28,9 @@ import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
 import tf.locals.idealsp.server.inspections.InspectionService;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyCommand;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyParams;
+import tf.locals.idealsp.server.semantic.SemanticMatch;
+import tf.locals.idealsp.server.semantic.SemanticSearchCommand;
+import tf.locals.idealsp.server.semantic.SemanticSearchParams;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -347,6 +350,27 @@ it.setCallHierarchyProvider(true);
     } catch (Exception e) {
       LOG.error("inspectionRunByName() failed", e);
       return MiscUtil.failed("inspectionRunByName", e.getMessage());
+    }
+  }
+
+  @Override
+  public CompletableFuture<List<SemanticMatch>> semanticSearch(@NotNull SemanticSearchParams params) {
+    try {
+      if (project == null) {
+        LOG.warn("semanticSearch() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(List.of());
+      }
+      var constraints = params.getConstraints();
+      if (constraints != null && !constraints.isEmpty()) {
+        SemanticSearchCommand.validateConstraints(constraints);
+      }
+      return CompletableFuture.supplyAsync(() ->
+          SemanticSearchCommand.search(project, params.getPattern(),
+              params.getScope(), params.getLanguage(), params.getFileUri(),
+              constraints));
+    } catch (Exception e) {
+      LOG.error("semanticSearch() failed", e);
+      return MiscUtil.failed("semanticSearch", e.getMessage());
     }
   }
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft** — implementation approach identified
+**Implemented** — `textDocument/semanticSearch` custom LSP method, xlsp CLI integration, constraint support, and 15 unit/feature/integration tests
 
 ---
 

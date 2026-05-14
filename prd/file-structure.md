@@ -114,6 +114,10 @@ Add optional filtering:
 - `--kind` filter: class, interface, enum, method, field, constructor
 - `--visibility` filter: public, private, protected, package
 
+## Status: ✅ COMPLETED
+
+Implemented in `tools/xlsp/operations/symbols.ts` and `tools/xlsp/cli.ts` (commit `0ebbf20`). Supports `--kind`, `--visibility`, and `--tree` flags.
+
 ## Implementation Plan
 
 ### Phase 1: Enhance symbols.ts (Priority: High)
