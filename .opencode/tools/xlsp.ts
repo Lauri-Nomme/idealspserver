@@ -8,7 +8,7 @@ export default tool({
       .describe("LSP operation to perform"),
     symbol: tool.schema
       .string()
-      .describe("Symbol name, query string, pattern (for semantic), or file path (for diagnostics/actions)"),
+      .describe("Symbol name, query string, or file path (for diagnostics/actions). For semantic search, use natural language: 'fields of type X', 'methods returning X', 'methods named X', 'methods taking X', 'catch blocks catching X', 'null checks', 'new X', or raw SSR patterns like '$Type$ $FieldName$;'"),
     file: tool.schema
       .string()
       .optional()
