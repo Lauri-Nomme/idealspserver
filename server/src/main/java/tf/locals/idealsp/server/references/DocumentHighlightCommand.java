@@ -62,6 +62,9 @@ public class DocumentHighlightCommand extends LspCommand<List<? extends Document
 
   @Override
   protected @NotNull List<? extends DocumentHighlight> execute(@NotNull ExecutorContext ctx) {
+    if (DumbService.isDumb(ctx.getProject())) {
+      return List.of();
+    }
     var disposable = Disposer.newDisposable();
     try {
       return EditorUtil.computeWithEditor(disposable, ctx.getPsiFile(), pos, editor -> {
