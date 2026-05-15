@@ -364,10 +364,22 @@ it.setCallHierarchyProvider(true);
       if (constraints != null && !constraints.isEmpty()) {
         SemanticSearchCommand.validateConstraints(constraints);
       }
-      return CompletableFuture.supplyAsync(() ->
-          SemanticSearchCommand.search(project, params.getPattern(),
+      LOG.warn("semanticSearch: pattern=" + params.getPattern() + " scope=" + params.getScope() + " fileUri=" + params.getFileUri());
+      var searchFuture = CompletableFuture.supplyAsync(() -> {
+          LOG.warn("semanticSearch: starting search...");
+          var result = SemanticSearchCommand.search(project, params.getPattern(),
               params.getScope(), params.getLanguage(), params.getFileUri(),
-              constraints));
+              constraints);
+          LOG.warn("semanticSearch: search complete, found " + result.size() + " matches");
+          return result;
+        });
+
+      // Wrap with timeout — SSR matcher can hang on large files
+      return searchFuture.orTimeout(10, TimeUnit.SECONDS)
+          .exceptionally(e -> {
+            LOG.warn("semanticSearch timed out or failed: " + e.getMessage());
+            return List.<SemanticMatch>of();
+          });
     } catch (Exception e) {
       LOG.error("semanticSearch() failed", e);
       return MiscUtil.failed("semanticSearch", e.getMessage());
