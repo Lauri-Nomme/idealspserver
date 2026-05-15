@@ -1,15 +1,15 @@
 # State
 
 ## Build
-- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-15 21:49:50 EEST
-- Service: active (PID 3446945), running since 21:49:50
-- Latest commit: `2b8a3aa` — "fix: update test line numbers for LspServer.java structure, fix document highlight timeout, add definition debug logging"
+- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-16 00:43 EEST
+- Service: active, running
+- Latest commit: `c929645` — "fix: add timeout to semantic search, fix file scope resolution, restructure test order"
 
 ## Test Results (test_lsp_comprehensive.py)
 
 Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 
-### Latest Run (2026-05-15 23:52)
+### Latest Run (2026-05-16 00:50)
 - **Passed: 22**
 - **Failed: 1** (shutdown - fails when server is in bad state after timeout tests)
 - **Known limitations: 16**
@@ -21,8 +21,13 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 - Added timeout wrappers for slow tests (semantic search: 10s on separate connection, all-files inspection: 15s)
 - Added new tests: signatureHelp (34), formatting (35), rangeFormatting (36), rename (37), resolveCompletionItem (38), shutdown (39)
 - Fixed bug in call hierarchy tests (tests 15-19 were jumbled)
-- Semantic search tests run on separate socket connection to avoid hanging main test flow
+- Semantic search tests run on separate socket connection BEFORE tests that may hang server
 - All tests now record results with `record_result()` for summary reporting
+
+### Server-Side Fixes
+- Added 10s timeout to `semanticSearch()` using `CompletableFuture.orTimeout()`
+- Fixed `SemanticSearchCommand.resolveScope()` to handle files outside project roots using try/catch fallback from `fileScope` to `filesScope`
+- Added debug logging to semantic search handler
 
 ### Passing Tests (23)
 | # | Test | Status |
@@ -49,24 +54,6 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 26 | Inspection runByName (unused) | OK (12 diags) |
 | 27 | Inspection runByName (non-existent) | OK |
 | 30 | Code Actions | OK |
-| 39 | Shutdown | OK |
-
-### Known Limitations (11 - handled gracefully)
-| # | Test | Issue |
-|---|------|-------|
-| 4 | Definition | returns [] — `TargetElementUtil.findTargetElement` can't resolve from synthetic editor |
-| 9 | Type definition | returns [] — same root cause |
-| 10 | Implementation | returns [] — same root cause |
-| 11 | Document highlight | returns None — times out in `HighlightUsagesHandler`, may need full indexing |
-| 15b | Cross-file references | all 16 refs are same-file; LspServerRunnerBase.java not indexed for refs |
-| 20 | PrepareCallHierarchy on field | returns constructor (valid IntelliJ behavior — field resolves to containing class) |
-| 28-29 | Inspection runByName (all-files) | TIMEOUT — project-wide inspection is slow |
-| 31-33 | Semantic search | TIMEOUT — `Matcher.findMatches` may hang or timeout |
-
-### Failing Tests (1)
-| # | Test | Issue |
-|---|------|-------|
-| 39 | Shutdown | Fails when server is in bad state after timeout tests |
 
 ### Known Limitations (16 - handled gracefully)
 | # | Test | Issue |
@@ -78,12 +65,17 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 15b | Cross-file references | all 16 refs are same-file; LspServerRunnerBase.java not indexed for refs |
 | 20 | PrepareCallHierarchy on field | returns constructor (valid IntelliJ behavior — field resolves to containing class) |
 | 28-29 | Inspection runByName (all-files) | TIMEOUT — project-wide inspection is slow |
-| 31-33 | Semantic search | TIMEOUT — `Matcher.findMatches` may hang or timeout |
+| 31-33 | Semantic search | TIMEOUT — server not responding to requests on second connection |
 | 34 | Signature Help | TIMEOUT — server not responding in headless mode |
 | 35 | Formatting | TIMEOUT — server not responding in headless mode |
 | 36 | Range Formatting | TIMEOUT — server not responding in headless mode |
 | 37 | Rename | TIMEOUT — server not responding in headless mode |
 | 38 | ResolveCompletionItem | TIMEOUT — server not responding in headless mode |
+
+### Failing Tests (1)
+| # | Test | Issue |
+|---|------|-------|
+| 39 | Shutdown | Fails when server is in bad state after timeout tests |
 
 ## Server Code Changes
 
