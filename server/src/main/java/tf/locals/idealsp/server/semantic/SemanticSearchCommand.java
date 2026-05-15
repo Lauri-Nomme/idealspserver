@@ -101,15 +101,24 @@ public class SemanticSearchCommand {
   }
 
   private static @NotNull SearchScope resolveScope(@NotNull Project project,
-                                                    @Nullable String scope,
-                                                    @Nullable String fileUri) {
+                                                     @Nullable String scope,
+                                                     @Nullable String fileUri) {
     if (fileUri != null) {
       try {
         var path = LspPath.fromLspUri(fileUri);
         var vFile = path.findVirtualFile();
         if (vFile != null) {
-          return new SearchScope(GlobalSearchScope.fileScope(project, vFile),
-              f -> f.getVirtualFile() != null && f.getVirtualFile().equals(vFile));
+          // Try fileScope first (works for files in project content roots)
+          try {
+            var fileScope = GlobalSearchScope.fileScope(project, vFile);
+            return new SearchScope(fileScope,
+                f -> f.getVirtualFile() != null && f.getVirtualFile().equals(vFile));
+          } catch (Exception e) {
+            // Fall back to filesScope which works for any virtual file
+            var filesScope = GlobalSearchScope.filesScope(project, java.util.List.of(vFile));
+            return new SearchScope(filesScope,
+                f -> f.getVirtualFile() != null && f.getVirtualFile().equals(vFile));
+          }
         }
       } catch (Exception e) {
         LOG.warn("Failed to resolve file URI: " + fileUri, e);
