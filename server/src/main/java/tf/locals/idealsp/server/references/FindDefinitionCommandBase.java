@@ -13,6 +13,7 @@ import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider;
 import com.intellij.openapi.fileEditor.impl.EditorComposite;
 import com.intellij.openapi.fileEditor.impl.EditorFileSwapper;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
@@ -57,6 +58,7 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
   @Override
   protected @NotNull Either<List<? extends Location>, @NotNull List<? extends LocationLink>> execute(@NotNull ExecutorContext ctx) {
     PsiFile file = ctx.getPsiFile();
+    var project = ctx.getProject();
     Document doc = MiscUtil.getDocument(file);
     if (doc == null) {
       return Either.forRight(List.of());
@@ -67,6 +69,8 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
     Range originalRange = MiscUtil.getPsiElementRange(doc, originalElem);
 
     if (originalElem == null) {
+      LOG.warn("findElementAt returned null; line=" + pos.getLine() + " col=" + pos.getCharacter()
+          + " docLen=" + doc.getTextLength() + " dumb=" + DumbService.isDumb(project));
       return Either.forRight(List.of());
     }
 
