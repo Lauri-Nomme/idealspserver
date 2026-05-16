@@ -1,23 +1,23 @@
 # State
 
 ## Build
-- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-16 17:36 EEST
+- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-16 21:15 EEST
 - Service: active, running
-- Latest commit: `387cc97` — "Fix semantic search threading and move tests earlier in test flow"
+- Latest commit: `cc328e5` — "Fix semantic search regex constraint - use simpler pattern without $Modifiers$"
 
 ## Test Results (test_lsp_comprehensive.py)
 
 Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 
-### Latest Run (2026-05-16 17:38)
-- **Passed: 24**
+### Latest Run (2026-05-16 21:15)
+- **Passed: 26**
 - **Failed: 0**
-- **Known limitations: 15**
+- **Known limitations: 13**
 - **Total: 39**
 
 ### Test Suite Improvements (May 2026)
 - Added test result tracking with pass/fail/skip/known summary
-- Added graceful handling for known-limitation tests (definition, type definition, implementation, document highlight, semantic search Logger constraint, all-files inspection)
+- Added graceful handling for known-limitation tests (definition, type definition, implementation, document highlight, all-files inspection)
 - Added timeout wrappers for slow tests (semantic search: 20s on separate connection, all-files inspection: 15s)
 - Added new tests: signatureHelp (34), formatting (35), rangeFormatting (36), rename (37), resolveCompletionItem (38), shutdown (39)
 - Fixed bug in call hierarchy tests (tests 15-19 were jumbled)
@@ -27,10 +27,11 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 ### Server-Side Fixes
 - Added 10s timeout to `semanticSearch()` using `CompletableFuture.orTimeout()`
 - Fixed `SemanticSearchCommand.resolveScope()` to use `ReadAction.compute()` for `GlobalSearchScope.fileScope()` (fixes threading exception)
-- Added debug logging to `newMatch` and `fileFilter` for troubleshooting
-- Semantic search now returns 21 field matches when run before slow inspection tests
+- Added debug logging to `newMatch`, `fileFilter`, variable names, and constraints
+- Semantic search returns 50 field matches with simpler pattern `$Type$ $FieldName$;`
+- Logger constraint test returns 1 match: `private final static Logger LOG = Logger.getInstance(LspServer.class);`
 
-### Passing Tests (24)
+### Passing Tests (26)
 | # | Test | Status |
 |---|------|--------|
 | 1 | Initialize | OK |
@@ -56,10 +57,11 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 26 | Inspection runByName (unused) | OK (12 diags) |
 | 27 | Inspection runByName (non-existent) | OK |
 | 30 | Code Actions | OK |
-| 31 | Semantic Search (fields) | OK (21 matches) |
+| 31 | Semantic Search (fields) | OK (50 matches) |
+| 32 | Semantic Search (Logger constraint) | OK (1 match) |
 | 33 | Semantic Search (invalid constraint) | OK (error returned) |
 
-### Known Limitations (15 - handled gracefully)
+### Known Limitations (13 - handled gracefully)
 | # | Test | Issue |
 |---|------|-------|
 | 4 | Definition | returns [] — `TargetElementUtil.findTargetElement` can't resolve from synthetic editor |
@@ -68,7 +70,6 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 11 | Document highlight | returns None — times out in `HighlightUsagesHandler`, may need full indexing |
 | 20 | PrepareCallHierarchy on field | returns constructor (valid IntelliJ behavior — field resolves to containing class) |
 | 28-29 | Inspection runByName (all-files) | TIMEOUT — project-wide inspection is slow |
-| 32 | Semantic Search (Logger constraint) | 0 results — SSR regex constraint on $Type$ not matching |
 | 34 | Signature Help | TIMEOUT — server not responding after slow inspection tests |
 | 35 | Formatting | TIMEOUT — server not responding after slow inspection tests |
 | 36 | Range Formatting | TIMEOUT — server not responding after slow inspection tests |
@@ -85,21 +86,24 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 - Increased cross-file indexing wait from 5s to 15s
 - Updated test 20 expectation
 - Moved semantic search tests (31-33) to run after test 22, BEFORE slow inspection tests (23-29)
+- Changed semantic search pattern from `$Modifiers$ $Type$ $FieldName$;` to `$Type$ $FieldName$;` (fixes regex constraint issue)
 
 ### semantic/SemanticSearchCommand.java
 - Added `ReadAction.compute()` wrapper for `GlobalSearchScope.fileScope()` to fix threading exception
-- Added debug logging to `newMatch` and `fileFilter` for troubleshooting
+- Added debug logging to `newMatch`, `fileFilter`, variable names, and constraints
 - Added `import com.intellij.openapi.application.ReadAction`
 
 ### scripts/test_semantic_search.py
 - New standalone test file for isolated semantic search debugging
 - Connects separately, initializes, opens LspServer.java, runs semantic search tests
+- Includes extensive test variations for debugging regex constraints
 
 ## Cross-file References
 Not working for LspServerRunnerBase.java. The `ensureSourceRoots` in `ProjectService.java` is supposed to add content roots, but `WorkspaceFileIndex must not be queried for the default project` warning suggests the project is using the default project rather than the opened workspace. This likely prevents the word index from covering the opened file.
 
 ## Semantic Search
-- **Working**: Returns 21 field matches when run before slow inspection tests
+- **Working**: Returns 50 field matches with pattern `$Type$ $FieldName$;`
+- **Regex constraint**: Works with simpler pattern — `$Type$ $FieldName$;` with `$Type$ regex=Logger` returns 1 match
+- **Known issue**: `$Modifiers$` greedy variable interferes with regex constraints on adjacent `$Type$` variable. Pattern `$Modifiers$ $Type$ $FieldName$;` with any specific regex returns 0 matches, while `regex=.*` returns all. Use `$Type$ $FieldName$;` instead.
 - **Threading fix**: `GlobalSearchScope.fileScope()` must be called inside `ReadAction.compute()`
-- **Known issue**: SSR regex constraint on `$Type$` with value `Logger` returns 0 matches (pattern `$Modifiers$ $Type$ $FieldName$;` with constraint `$Type$ regex=Logger`)
 - **Timeout**: 10s server-side timeout prevents hanging on large files
