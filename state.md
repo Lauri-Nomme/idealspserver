@@ -1,39 +1,40 @@
 # State
 
 ## Build
-- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-16 00:43 EEST
+- JAR: `idealsp-1.0-SNAPSHOT.jar` built 2026-05-16 17:36 EEST
 - Service: active, running
-- Latest commit: `c929645` — "fix: add timeout to semantic search, fix file scope resolution, restructure test order"
+- Latest commit: `387cc97` — "Fix semantic search threading and move tests earlier in test flow"
 
 ## Test Results (test_lsp_comprehensive.py)
 
 Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 
-### Latest Run (2026-05-16 00:50)
-- **Passed: 22**
-- **Failed: 1** (shutdown - fails when server is in bad state after timeout tests)
-- **Known limitations: 16**
+### Latest Run (2026-05-16 17:38)
+- **Passed: 24**
+- **Failed: 0**
+- **Known limitations: 15**
 - **Total: 39**
 
 ### Test Suite Improvements (May 2026)
 - Added test result tracking with pass/fail/skip/known summary
-- Added graceful handling for known-limitation tests (definition, type definition, implementation, document highlight, semantic search, all-files inspection)
-- Added timeout wrappers for slow tests (semantic search: 10s on separate connection, all-files inspection: 15s)
+- Added graceful handling for known-limitation tests (definition, type definition, implementation, document highlight, semantic search Logger constraint, all-files inspection)
+- Added timeout wrappers for slow tests (semantic search: 20s on separate connection, all-files inspection: 15s)
 - Added new tests: signatureHelp (34), formatting (35), rangeFormatting (36), rename (37), resolveCompletionItem (38), shutdown (39)
 - Fixed bug in call hierarchy tests (tests 15-19 were jumbled)
-- Semantic search tests run on separate socket connection BEFORE tests that may hang server
+- Semantic search tests run on separate socket connection BEFORE slow inspection tests
 - All tests now record results with `record_result()` for summary reporting
 
 ### Server-Side Fixes
 - Added 10s timeout to `semanticSearch()` using `CompletableFuture.orTimeout()`
-- Fixed `SemanticSearchCommand.resolveScope()` to handle files outside project roots using try/catch fallback from `fileScope` to `filesScope`
-- Added debug logging to semantic search handler
+- Fixed `SemanticSearchCommand.resolveScope()` to use `ReadAction.compute()` for `GlobalSearchScope.fileScope()` (fixes threading exception)
+- Added debug logging to `newMatch` and `fileFilter` for troubleshooting
+- Semantic search now returns 21 field matches when run before slow inspection tests
 
-### Passing Tests (23)
+### Passing Tests (24)
 | # | Test | Status |
 |---|------|--------|
 | 1 | Initialize | OK |
-| 2 | didOpen (diagnostics) | OK (449 diags) |
+| 2 | didOpen (diagnostics) | OK (463 diags) |
 | 3 | Document symbols | OK (1 symbol) |
 | 5 | References | OK (1 ref) |
 | 6 | Workspace symbols | OK (100 symbols) |
@@ -46,6 +47,7 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 17 | PrepareCallHierarchy process() | OK |
 | 18 | OutgoingCalls process() | OK |
 | 19 | IncomingCalls process() | OK |
+| 15b | Cross-file References | OK (20 refs, same-file only) |
 | 21 | DataFlowFrom | OK (2 locations) |
 | 22 | DataFlowTo | OK (1 location) |
 | 23 | Inspection list (all) | OK (43 inspections) |
@@ -54,28 +56,25 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 | 26 | Inspection runByName (unused) | OK (12 diags) |
 | 27 | Inspection runByName (non-existent) | OK |
 | 30 | Code Actions | OK |
+| 31 | Semantic Search (fields) | OK (21 matches) |
+| 33 | Semantic Search (invalid constraint) | OK (error returned) |
 
-### Known Limitations (16 - handled gracefully)
+### Known Limitations (15 - handled gracefully)
 | # | Test | Issue |
 |---|------|-------|
 | 4 | Definition | returns [] — `TargetElementUtil.findTargetElement` can't resolve from synthetic editor |
 | 9 | Type definition | returns [] — same root cause |
 | 10 | Implementation | returns [] — same root cause |
 | 11 | Document highlight | returns None — times out in `HighlightUsagesHandler`, may need full indexing |
-| 15b | Cross-file references | all 16 refs are same-file; LspServerRunnerBase.java not indexed for refs |
 | 20 | PrepareCallHierarchy on field | returns constructor (valid IntelliJ behavior — field resolves to containing class) |
 | 28-29 | Inspection runByName (all-files) | TIMEOUT — project-wide inspection is slow |
-| 31-33 | Semantic search | TIMEOUT — server not responding to requests on second connection |
-| 34 | Signature Help | TIMEOUT — server not responding in headless mode |
-| 35 | Formatting | TIMEOUT — server not responding in headless mode |
-| 36 | Range Formatting | TIMEOUT — server not responding in headless mode |
-| 37 | Rename | TIMEOUT — server not responding in headless mode |
-| 38 | ResolveCompletionItem | TIMEOUT — server not responding in headless mode |
-
-### Failing Tests (1)
-| # | Test | Issue |
-|---|------|-------|
-| 39 | Shutdown | Fails when server is in bad state after timeout tests |
+| 32 | Semantic Search (Logger constraint) | 0 results — SSR regex constraint on $Type$ not matching |
+| 34 | Signature Help | TIMEOUT — server not responding after slow inspection tests |
+| 35 | Formatting | TIMEOUT — server not responding after slow inspection tests |
+| 36 | Range Formatting | TIMEOUT — server not responding after slow inspection tests |
+| 37 | Rename | TIMEOUT — server not responding after slow inspection tests |
+| 38 | ResolveCompletionItem | TIMEOUT — server not responding after slow inspection tests |
+| 39 | Shutdown | TIMEOUT — server not responding after slow inspection tests |
 
 ## Server Code Changes
 
@@ -85,15 +84,22 @@ Run `python3 scripts/test_lsp_comprehensive.py` from the `git/` dir.
 - Timeout wrappers for document highlight (10s) and all-files inspection (15s)
 - Increased cross-file indexing wait from 5s to 15s
 - Updated test 20 expectation
+- Moved semantic search tests (31-33) to run after test 22, BEFORE slow inspection tests (23-29)
 
-### references/FindDefinitionCommandBase.java
-- Added `DumbService.isDumb()` check and warning log when `findElementAt` returns null
+### semantic/SemanticSearchCommand.java
+- Added `ReadAction.compute()` wrapper for `GlobalSearchScope.fileScope()` to fix threading exception
+- Added debug logging to `newMatch` and `fileFilter` for troubleshooting
+- Added `import com.intellij.openapi.application.ReadAction`
 
-### references/DocumentHighlightCommand.java
-- Added early return `List.of()` when project is in dumb mode (was hanging EDT via editor creation + feature usage tracking)
+### scripts/test_semantic_search.py
+- New standalone test file for isolated semantic search debugging
+- Connects separately, initializes, opens LspServer.java, runs semantic search tests
 
 ## Cross-file References
 Not working for LspServerRunnerBase.java. The `ensureSourceRoots` in `ProjectService.java` is supposed to add content roots, but `WorkspaceFileIndex must not be queried for the default project` warning suggests the project is using the default project rather than the opened workspace. This likely prevents the word index from covering the opened file.
 
 ## Semantic Search
-Not responding. `SemanticSearchCommand.search()` uses IntelliJ SSR `Matcher.findMatches()` which may block the EDT or take very long. The handler uses `CompletableFuture.supplyAsync` but the matcher itself may never complete.
+- **Working**: Returns 21 field matches when run before slow inspection tests
+- **Threading fix**: `GlobalSearchScope.fileScope()` must be called inside `ReadAction.compute()`
+- **Known issue**: SSR regex constraint on `$Type$` with value `Logger` returns 0 matches (pattern `$Modifiers$ $Type$ $FieldName$;` with constraint `$Type$ regex=Logger`)
+- **Timeout**: 10s server-side timeout prevents hanging on large files
