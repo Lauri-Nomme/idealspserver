@@ -179,15 +179,15 @@ def test_semantic_search():
     else:
         print("   TIMEOUT - no response")
 
-    # Test 2: Find Logger fields with constraint
+    # Test 2: Find Logger fields with constraint (pattern with initializer)
     print("\n5. Testing semantic search for Logger fields with constraint...")
-    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=Logger")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$ = $Init$; with $Type$ regex=Logger")
     sock.settimeout(20)
     resp = send_and_recv(
         sock,
         "textDocument/semanticSearch",
         {
-            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "pattern": "$Modifiers$ $Type$ $FieldName$ = $Init$;",
             "scope": "file",
             "language": "java",
             "fileUri": f"file://{semantic_test_file}",
@@ -202,6 +202,487 @@ def test_semantic_search():
         if "result" in resp:
             matches = resp["result"]
             print(f"   Result: {len(matches)} Logger matches")
+            for m in matches[:5]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2b: Same pattern without constraint - should find all initialized fields
+    print("\n5b. Testing semantic search for all initialized fields (no constraint)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$ = $Init$;")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$ = $Init$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+        },
+        14,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} initialized field matches")
+            for m in matches[:5]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2c: Original pattern with constraint - should return 0 (Logger field has initializer)
+    print("\n5c. Testing original pattern with Logger constraint (should be 0 - has initializer)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=Logger")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "Logger"}},
+        },
+        15,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} matches (expected 0 - Logger field has initializer)")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2d: Try regex=var (should match the 13 var declarations)
+    print("\n5d. Testing pattern with $Type$ regex=var...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=var")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "var"}},
+        },
+        16,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} var matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:60]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2e: Try regex=.* (should match all 21)
+    print("\n5e. Testing pattern with $Type$ regex=.* (should match all)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=.*")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": ".*"}},
+        },
+        17,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} matches (expected 21)")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2f: Try regex=.*var.* (partial match)
+    print("\n5f. Testing pattern with $Type$ regex=.*var.*...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=.*var.*")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": ".*var.*"}},
+        },
+        18,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} var matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:60]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2g: Try regex=.*Logger.* (partial match for Logger)
+    print("\n5g. Testing pattern with $Type$ regex=.*Logger.*...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=.*Logger.*")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": ".*Logger.*"}},
+        },
+        19,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2h: Try text constraint instead of regex
+    print("\n5h. Testing pattern with $Type$ text=Logger...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ text=Logger")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"text": "Logger"}},
+        },
+        20,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2i: Try type constraint (exprType)
+    print("\n5i. Testing pattern with $Type$ type=Logger...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ type=Logger")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"type": "Logger"}},
+        },
+        21,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger type matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2j: Try regex=^var$ (exact match)
+    print("\n5j. Testing pattern with $Type$ regex=^var$ (exact match)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=^var$")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "^var$"}},
+        },
+        22,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} var matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:60]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2k: Try regex=^Logger$ (exact match for Logger)
+    print("\n5k. Testing pattern with $Type$ regex=^Logger$ (exact match)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=^Logger$")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "^Logger$"}},
+        },
+        23,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2l: Try regex=^L (starts with L)
+    print("\n5l. Testing pattern with $Type$ regex=^L (starts with L)...")
+    print("   Pattern: $Modifiers$ $Type$ $FieldName$; with $Type$ regex=^L")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$ $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "^L"}},
+        },
+        24,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} starts-with-L matches")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2m: Try inline constraint syntax in pattern
+    print("\n5m. Testing pattern with inline constraint $Type$ regex=\"Logger\"...")
+    print("   Pattern: $Modifiers$ $Type$(regex=\"Logger\") $FieldName$;")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$(regex=\"Logger\") $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+        },
+        25,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger matches (inline constraint)")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2n: Try inline constraint with var
+    print("\n5n. Testing pattern with inline constraint $Type$ regex=\"var\"...")
+    print("   Pattern: $Modifiers$ $Type$(regex=\"var\") $FieldName$;")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Modifiers$ $Type$(regex=\"var\") $FieldName$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+        },
+        26,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} var matches (inline constraint)")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:60]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2o: Try simpler pattern - just match type name
+    print("\n5o. Testing simpler pattern $Type$ $name$; with $Type$ regex=Logger...")
+    print("   Pattern: $Type$ $name$; with $Type$ regex=Logger")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Type$ $name$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+            "constraints": {"$Type$": {"regex": "Logger"}},
+        },
+        27,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} Logger matches (simple pattern)")
+            for m in matches[:3]:
+                start = m.get("start", {})
+                line = start.get("line", "?")
+                text = m.get("matchedText", "")[:80]
+                print(f"     - line {line}: {text}")
+        if "error" in resp:
+            print(f"   Error: {resp['error']}")
+    else:
+        print("   TIMEOUT - no response")
+
+    # Test 2p: Simpler pattern without constraint
+    print("\n5p. Testing simpler pattern $Type$ $name$; without constraint...")
+    print("   Pattern: $Type$ $name$;")
+    sock.settimeout(20)
+    resp = send_and_recv(
+        sock,
+        "textDocument/semanticSearch",
+        {
+            "pattern": "$Type$ $name$;",
+            "scope": "file",
+            "language": "java",
+            "fileUri": f"file://{semantic_test_file}",
+        },
+        28,
+    )
+    sock.settimeout(30)
+
+    if resp:
+        print(f"   Response received: id={resp.get('id')}")
+        if "result" in resp:
+            matches = resp["result"]
+            print(f"   Result: {len(matches)} matches (simple pattern, no constraint)")
             for m in matches[:5]:
                 start = m.get("start", {})
                 line = start.get("line", "?")

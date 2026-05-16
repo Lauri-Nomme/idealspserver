@@ -51,6 +51,16 @@ public class SemanticSearchCommand {
       matchOptions.setScope(resolvedScope.scope);
     }
 
+    // Debug: log variable names and constraints
+    LOG.warn("search: usedVariableNames=" + matchOptions.getUsedVariableNames());
+    LOG.warn("search: variableConstraintNames=" + matchOptions.getVariableConstraintNames());
+    for (String varName : matchOptions.getVariableConstraintNames()) {
+      var vc = matchOptions.getVariableConstraint(varName);
+      if (vc != null) {
+        LOG.warn("search: constraint[" + varName + "] regex=" + vc.getRegExp() + " invert=" + vc.isInvertRegExp() + " exprType=" + vc.getNameOfExprType());
+      }
+    }
+
     try {
       var matcher = new Matcher(project, matchOptions);
       var sink = new DefaultMatchResultSink() {
@@ -83,7 +93,9 @@ public class SemanticSearchCommand {
           var start = MiscUtil.offsetToPosition(doc, range.getStartOffset());
           var end = MiscUtil.offsetToPosition(doc, range.getEndOffset());
 
-          LOG.warn("newMatch: ADDING uri=" + uri + " line=" + start.getLine());
+          // Log matched text for debugging
+          String matchedText = doc.getText(range);
+          LOG.warn("newMatch: ADDING uri=" + uri + " line=" + start.getLine() + " text=" + matchedText.replace("\n", " ").substring(0, Math.min(80, matchedText.length())));
           result.add(new SemanticMatch(uri, start, end, matchResult.getMatchImage()));
         }
 
@@ -175,7 +187,7 @@ public class SemanticSearchCommand {
   }
 
   private static void applyConstraints(@NotNull MatchOptions matchOptions,
-                                        @NotNull Map<String, Map<String, String>> constraints) {
+                                         @NotNull Map<String, Map<String, String>> constraints) {
     for (var entry : constraints.entrySet()) {
       var varName = entry.getKey();
       if (varName.startsWith("$") && varName.endsWith("$")) {
@@ -185,27 +197,33 @@ public class SemanticSearchCommand {
       if (varConstraints == null || varConstraints.isEmpty()) continue;
 
       var constraint = matchOptions.addNewVariableConstraint(varName);
+      LOG.warn("applyConstraints: varName=" + varName + " constraints=" + varConstraints);
       for (var prop : varConstraints.entrySet()) {
         switch (prop.getKey()) {
           case "regex", "text" -> {
             constraint.setRegExp(prop.getValue());
             constraint.setInvertRegExp(false);
+            LOG.warn("applyConstraints: set regex=" + prop.getValue() + " invert=false");
           }
           case "notRegex", "notText" -> {
             constraint.setRegExp(prop.getValue());
             constraint.setInvertRegExp(true);
+            LOG.warn("applyConstraints: set regex=" + prop.getValue() + " invert=true");
           }
           case "type", "exprType" -> {
             constraint.setNameOfExprType(prop.getValue());
             constraint.setInvertExprType(false);
+            LOG.warn("applyConstraints: set exprType=" + prop.getValue());
           }
           case "notType", "notExprType" -> {
             constraint.setNameOfExprType(prop.getValue());
             constraint.setInvertExprType(true);
+            LOG.warn("applyConstraints: set exprType=" + prop.getValue() + " invert=true");
           }
           case "formalType", "argType" -> {
             constraint.setNameOfFormalArgType(prop.getValue());
             constraint.setInvertFormalType(false);
+            LOG.warn("applyConstraints: set formalType=" + prop.getValue());
           }
           case "within" -> constraint.setWithinConstraint(prop.getValue());
           case "contains" -> constraint.setContainsConstraint(prop.getValue());
