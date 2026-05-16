@@ -827,6 +827,87 @@ def test_all():
         print(f"22. DataFlowTo: FAILED")
         record_result(22, "DataFlowTo", "FAIL")
 
+    # ============================================
+    # Semantic Search Tests (separate connection - run BEFORE slow inspection tests)
+    # Server has 10s timeout on semanticSearch
+    # ============================================
+    semantic_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
+    with open(semantic_test_file) as f:
+        semantic_file_content = f.read()
+
+    sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock2.settimeout(30)
+    try:
+        print("    Connecting to server for semantic search tests...")
+        sock2.connect(("127.0.0.1", 8989))
+        print("    Initializing semantic search connection...")
+        send_and_recv(sock2, "initialize", {"processId": 12345, "clientInfo": {"name": "test", "version": "1.0"}, "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}], "capabilities": {}}, 100)
+        send_notification(sock2, "initialized", {})
+        print("    Opening semantic test file...")
+        send_notification(sock2, "textDocument/didOpen", {"textDocument": {"uri": f"file://{semantic_test_file}", "languageId": "java", "version": 1, "text": semantic_file_content}})
+        drain_notifications(sock2, 5)
+        print("    Starting semantic search tests...")
+
+        # Test 31: Find field declarations
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}"}, 131)
+        sock2.settimeout(30)
+        if resp and "result" in resp:
+            matches = resp["result"]
+            if isinstance(matches, list) and len(matches) > 0:
+                print(f"31. Semantic Search (fields): OK - Found {len(matches)} field declarations")
+                for m in matches[:3]:
+                    start = m.get("start", {})
+                    line = start.get("line", "?")
+                    text = m.get("matchedText", "")[:50]
+                    print(f"    - line {line}: {text}")
+                record_result(31, "Semantic Search fields", "PASS", f"{len(matches)} matches")
+            else:
+                print(f"31. Semantic Search (fields): no results returned")
+                record_result(31, "Semantic Search fields", "KNOWN", "no results - SSR may not match")
+        else:
+            print(f"31. Semantic Search (fields): TIMEOUT")
+            record_result(31, "Semantic Search fields", "KNOWN", "TIMEOUT")
+
+        # Test 32: Find Logger fields with constraint
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"regex": "Logger"}}}, 132)
+        sock2.settimeout(30)
+        if resp and "result" in resp:
+            matches = resp["result"]
+            if isinstance(matches, list) and len(matches) > 0:
+                print(f"32. Semantic Search (Logger fields): OK - Found {len(matches)} Logger fields")
+                record_result(32, "Semantic Search Logger", "PASS", f"{len(matches)} matches")
+            else:
+                print(f"32. Semantic Search (Logger fields): no results")
+                record_result(32, "Semantic Search Logger", "KNOWN", "no results")
+        else:
+            print(f"32. Semantic Search (Logger fields): TIMEOUT")
+            record_result(32, "Semantic Search Logger", "KNOWN", "TIMEOUT")
+
+        # Test 33: Invalid constraint — should return error
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"foo": "bar"}}}, 133)
+        sock2.settimeout(30)
+        if resp and "error" in resp:
+            print(f"33. Semantic Search invalid constraint: OK - got error")
+            record_result(33, "Semantic Search invalid constraint", "PASS")
+        elif resp and "result" in resp:
+            print(f"33. Semantic Search invalid constraint: returned result instead of error")
+            record_result(33, "Semantic Search invalid constraint", "FAIL")
+        else:
+            print(f"33. Semantic Search invalid constraint: TIMEOUT")
+            record_result(33, "Semantic Search invalid constraint", "KNOWN", "TIMEOUT")
+
+        send_and_recv(sock2, "shutdown", {}, 140)
+        send_notification(sock2, "exit", {})
+        sock2.close()
+    except ConnectionRefusedError:
+        print("31-33. Semantic Search: SKIPPED - server unavailable")
+        record_result(31, "Semantic Search fields", "SKIP")
+        record_result(32, "Semantic Search Logger", "SKIP")
+        record_result(33, "Semantic Search invalid constraint", "SKIP")
+
     # Test inspection list — list all inspections
     resp = send_and_recv(sock, "$/inspection/list", {"query": ""}, 23)
     if resp and "result" in resp and resp["result"]:
@@ -1003,87 +1084,6 @@ def test_all():
     else:
         print(f"30. Code Actions: FAILED - no response")
         record_result(30, "Code Actions", "FAIL")
-
-    # ============================================
-    # Semantic Search Tests (separate connection - run BEFORE tests that may hang server)
-    # Server has 10s timeout on semanticSearch
-    # ============================================
-    semantic_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-    with open(semantic_test_file) as f:
-        semantic_file_content = f.read()
-
-    sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock2.settimeout(30)
-    try:
-        print("    Connecting to server for semantic search tests...")
-        sock2.connect(("127.0.0.1", 8989))
-        print("    Initializing semantic search connection...")
-        send_and_recv(sock2, "initialize", {"processId": 12345, "clientInfo": {"name": "test", "version": "1.0"}, "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}], "capabilities": {}}, 100)
-        send_notification(sock2, "initialized", {})
-        print("    Opening semantic test file...")
-        send_notification(sock2, "textDocument/didOpen", {"textDocument": {"uri": f"file://{semantic_test_file}", "languageId": "java", "version": 1, "text": semantic_file_content}})
-        drain_notifications(sock2, 5)
-        print("    Starting semantic search tests...")
-
-        # Test 31: Find field declarations
-        sock2.settimeout(20)
-        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}"}, 131)
-        sock2.settimeout(30)
-        if resp and "result" in resp:
-            matches = resp["result"]
-            if isinstance(matches, list) and len(matches) > 0:
-                print(f"31. Semantic Search (fields): OK - Found {len(matches)} field declarations")
-                for m in matches[:3]:
-                    start = m.get("start", {})
-                    line = start.get("line", "?")
-                    text = m.get("matchedText", "")[:50]
-                    print(f"    - line {line}: {text}")
-                record_result(31, "Semantic Search fields", "PASS", f"{len(matches)} matches")
-            else:
-                print(f"31. Semantic Search (fields): no results returned")
-                record_result(31, "Semantic Search fields", "KNOWN", "no results - SSR may not match")
-        else:
-            print(f"31. Semantic Search (fields): TIMEOUT")
-            record_result(31, "Semantic Search fields", "KNOWN", "TIMEOUT")
-
-        # Test 32: Find Logger fields with constraint
-        sock2.settimeout(20)
-        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"regex": "Logger"}}}, 132)
-        sock2.settimeout(30)
-        if resp and "result" in resp:
-            matches = resp["result"]
-            if isinstance(matches, list) and len(matches) > 0:
-                print(f"32. Semantic Search (Logger fields): OK - Found {len(matches)} Logger fields")
-                record_result(32, "Semantic Search Logger", "PASS", f"{len(matches)} matches")
-            else:
-                print(f"32. Semantic Search (Logger fields): no results")
-                record_result(32, "Semantic Search Logger", "KNOWN", "no results")
-        else:
-            print(f"32. Semantic Search (Logger fields): TIMEOUT")
-            record_result(32, "Semantic Search Logger", "KNOWN", "TIMEOUT")
-
-        # Test 33: Invalid constraint — should return error
-        sock2.settimeout(20)
-        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"foo": "bar"}}}, 133)
-        sock2.settimeout(30)
-        if resp and "error" in resp:
-            print(f"33. Semantic Search invalid constraint: OK - got error")
-            record_result(33, "Semantic Search invalid constraint", "PASS")
-        elif resp and "result" in resp:
-            print(f"33. Semantic Search invalid constraint: returned result instead of error")
-            record_result(33, "Semantic Search invalid constraint", "FAIL")
-        else:
-            print(f"33. Semantic Search invalid constraint: TIMEOUT")
-            record_result(33, "Semantic Search invalid constraint", "KNOWN", "TIMEOUT")
-
-        send_and_recv(sock2, "shutdown", {}, 140)
-        send_notification(sock2, "exit", {})
-        sock2.close()
-    except ConnectionRefusedError:
-        print("31-33. Semantic Search: SKIPPED - server unavailable")
-        record_result(31, "Semantic Search fields", "SKIP")
-        record_result(32, "Semantic Search Logger", "SKIP")
-        record_result(33, "Semantic Search invalid constraint", "SKIP")
 
     # ============================================
     # Additional LSP Feature Tests

@@ -1,5 +1,6 @@
 package tf.locals.idealsp.server.semantic;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.PlainTextFileType;
@@ -45,6 +46,7 @@ public class SemanticSearchCommand {
     }
 
     SearchScope resolvedScope = resolveScope(project, scope, fileUri);
+    LOG.warn("search: scope=" + resolvedScope.scope + " hasFilter=" + (resolvedScope.fileFilter != null));
     if (resolvedScope.scope != null) {
       matchOptions.setScope(resolvedScope.scope);
     }
@@ -60,6 +62,15 @@ public class SemanticSearchCommand {
           var file = match.getContainingFile();
           if (file == null) return;
 
+          // Apply file filter here (Matcher may call newMatch before processFile filter)
+          if (resolvedScope.fileFilter != null) {
+            boolean passes = resolvedScope.fileFilter.test(file);
+            var vf = file.getVirtualFile();
+            String filePath = vf != null ? vf.getPath() : "null-vf";
+            LOG.warn("newMatch: file=" + file.getName() + " path=" + filePath + " passes=" + passes);
+            if (!passes) return;
+          }
+
           var virtualFile = file.getVirtualFile();
           if (virtualFile == null) return;
 
@@ -72,17 +83,23 @@ public class SemanticSearchCommand {
           var start = MiscUtil.offsetToPosition(doc, range.getStartOffset());
           var end = MiscUtil.offsetToPosition(doc, range.getEndOffset());
 
+          LOG.warn("newMatch: ADDING uri=" + uri + " line=" + start.getLine());
           result.add(new SemanticMatch(uri, start, end, matchResult.getMatchImage()));
         }
 
         @Override
         public void processFile(@NotNull PsiFile file) {
-          if (resolvedScope.fileFilter != null && !resolvedScope.fileFilter.test(file)) return;
+          if (resolvedScope.fileFilter != null && !resolvedScope.fileFilter.test(file)) {
+            LOG.warn("processFile: filtered out " + file.getName());
+            return;
+          }
+          LOG.warn("processFile: processing " + file.getName());
           super.processFile(file);
         }
       };
 
       matcher.findMatches(sink);
+      LOG.warn("search: matcher.findMatches completed, result size=" + result.size());
     } catch (IllegalArgumentException e) {
       LOG.error("Semantic search constraint error: " + e.getMessage());
       throw e;
@@ -108,17 +125,11 @@ public class SemanticSearchCommand {
         var path = LspPath.fromLspUri(fileUri);
         var vFile = path.findVirtualFile();
         if (vFile != null) {
-          // Try fileScope first (works for files in project content roots)
-          try {
-            var fileScope = GlobalSearchScope.fileScope(project, vFile);
-            return new SearchScope(fileScope,
-                f -> f.getVirtualFile() != null && f.getVirtualFile().equals(vFile));
-          } catch (Exception e) {
-            // Fall back to filesScope which works for any virtual file
-            var filesScope = GlobalSearchScope.filesScope(project, java.util.List.of(vFile));
-            return new SearchScope(filesScope,
-                f -> f.getVirtualFile() != null && f.getVirtualFile().equals(vFile));
-          }
+          LOG.warn("resolveScope: found vFile=" + vFile.getPath() + " valid=" + vFile.isValid());
+          // Use GlobalSearchScope.fileScope which is designed for single-file searches
+          // Must be called inside ReadAction
+          var fileScope = ReadAction.compute(() -> GlobalSearchScope.fileScope(project, vFile));
+          return new SearchScope(fileScope, null);
         }
       } catch (Exception e) {
         LOG.warn("Failed to resolve file URI: " + fileUri, e);
