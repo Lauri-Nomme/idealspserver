@@ -391,7 +391,6 @@ it.setCallHierarchyProvider(true);
   }
 
   @Override
-  @Override
   public CompletableFuture<RefactorResult> refactor(@NotNull RefactorParams params) {
     try {
       var project = getProject();

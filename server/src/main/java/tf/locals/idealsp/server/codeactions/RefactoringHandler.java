@@ -67,7 +67,7 @@ public final class RefactoringHandler {
           com.intellij.psi.PsiType.class, String.class,
           com.intellij.psi.PsiClass.class, String.class, int[].class);
       boolean result = (boolean) doTestExtract.invoke(methodExtractor,
-          true, editor, Boolean.FALSE, Boolean.False, null, null, null, "private", new int[0]);
+          true, editor, Boolean.FALSE, Boolean.FALSE, null, null, null, "private", new int[0]);
       return result;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
