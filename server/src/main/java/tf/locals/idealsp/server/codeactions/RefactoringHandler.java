@@ -40,11 +40,11 @@ public final class RefactoringHandler {
   public static boolean applyExtractMethod(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file,
                                             @Nullable String methodName) {
     try {
-      Class<?> methodExtractorClass = Class.forName("com.intellij.refactoring.extractMethod.newImpl.MethodExtractor");
+      Class<?> handlerClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodHandler");
+      Class<?> processorClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodProcessor");
 
       var selectionModel = editor.getSelectionModel();
       if (!selectionModel.hasSelection()) {
-        Class<?> handlerClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodHandler");
         Method getElements = handlerClass.getMethod("getElements", Project.class, Editor.class, PsiFile.class);
         PsiElement[] elements = (PsiElement[]) getElements.invoke(null, project, editor, file);
         if (elements == null || elements.length == 0) return false;
@@ -61,14 +61,26 @@ public final class RefactoringHandler {
         }
       }
 
-      Object methodExtractor = methodExtractorClass.getDeclaredConstructor().newInstance();
-      Method doTestExtract = methodExtractorClass.getMethod("doTestExtract",
-          boolean.class, Editor.class, Boolean.class, Boolean.class,
-          com.intellij.psi.PsiType.class, String.class,
-          com.intellij.psi.PsiClass.class, String.class, int[].class);
-      boolean result = (boolean) doTestExtract.invoke(methodExtractor,
-          true, editor, Boolean.FALSE, Boolean.FALSE, null, null, null, "private", new int[0]);
-      return result;
+      Method getElements = handlerClass.getMethod("getElements", Project.class, Editor.class, PsiFile.class);
+      PsiElement[] elements = (PsiElement[]) getElements.invoke(null, project, editor, file);
+      if (elements == null || elements.length == 0) return false;
+
+      Method getProcessor = handlerClass.getDeclaredMethod("getProcessor", PsiElement[].class, Project.class, PsiFile.class, Editor.class, boolean.class, java.util.function.Consumer.class);
+      getProcessor.setAccessible(true);
+      Object processor = getProcessor.invoke(null, elements, project, file, editor, false, null);
+      if (processor == null) return false;
+
+      if (methodName != null && !methodName.isEmpty()) {
+        var nameField = processorClass.getDeclaredField("myMethodName");
+        nameField.setAccessible(true);
+        if (nameField.get(processor) == null || ((String) nameField.get(processor)).isEmpty()) {
+          nameField.set(processor, methodName);
+        }
+      }
+
+      Method extractMethod = handlerClass.getMethod("extractMethod", Project.class, processorClass);
+      extractMethod.invoke(null, project, processor);
+      return true;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
       LOG.warn("applyExtractMethod error: " + cause, cause);
