@@ -29,11 +29,11 @@ public abstract class LspCommand<R> {
   public @NotNull CompletableFuture<@Nullable R> runAsync(@NotNull Project project, @NotNull LspPath path) {
     final var virtualFile = path.refreshAndFindVirtualFile();
     if (virtualFile == null) {
-      LOG.info("File not found: " + path);
+      LOG.warn("File not found: " + path);
       return CompletableFuture.failedFuture(new RuntimeException("File not found: " + path));
     }
 
-    LOG.info(getMessageSupplier().get());
+    LOG.warn(getMessageSupplier().get());
     Executor executor = AppExecutorUtil.getAppExecutorService();
     if (isCancellable()) {
       return CompletableFutures.computeAsync(executor, cancelToken -> getResult(path, project, cancelToken));
