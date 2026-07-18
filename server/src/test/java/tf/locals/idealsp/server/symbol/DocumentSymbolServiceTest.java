@@ -43,47 +43,57 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
 
     final var fieldIntX = documentSymbol("x: int", Field,
         newRange(5, 2, 5, 16),
-        newRange(5, 14, 5, 14));
+        newRange(5, 14, 5, 14),
+        "private int");
 
     final var fieldClass1Cls = documentSymbol("cls: Class1 = new Class1()", Field,
         newRange(6, 2, 6, 49),
-        newRange(6, 30, 6, 30));
+        newRange(6, 30, 6, 30),
+        "private Class1");
 
     final var docSymConstructor = documentSymbol("DocumentSymbol(int)", Method,
         newRange(8, 2, 10, 3),
-        newRange(8, 9, 8, 9));
+        newRange(8, 9, 8, 9),
+        "public DocumentSymbol(int): void");
 
     final var methodFoo = documentSymbol("foo(int, String): int", Method,
         newRange(12, 2, 19, 3),
-        newRange(13, 13, 13, 13));
+        newRange(13, 13, 13, 13),
+        "public foo(int, String): int");
 
     final var interMethodFoo = documentSymbol("foo(): void", Method,
         newRange(22, 4, 22, 15),
-        newRange(22, 9, 22, 9));
+        newRange(22, 9, 22, 9),
+        "public foo(): void");
 
     final var entryInterface = documentSymbol("EntryInter", Interface,
         newRange(21, 2, 23, 3),
         newRange(21, 19, 21, 19),
+        "public",
         arrayList(interMethodFoo));
 
     final var enumMemberA = documentSymbol("A: Letter", Field,
         newRange(26, 4, 26, 5),
-        newRange(26, 4, 26, 4));
+        newRange(26, 4, 26, 4),
+        "public Letter");
 
     final var enumMemberB = documentSymbol("B: Letter", Field,
         newRange(26, 7, 26, 8),
-        newRange(26, 7, 26, 7));
+        newRange(26, 7, 26, 7),
+        "public Letter");
 
     final var enumLetter = documentSymbol("Letter", Enum,
         newRange(25, 2, 27, 3),
         newRange(25, 14, 25, 14),
+        "public",
         arrayList(enumMemberA, enumMemberB));
 
     final var docSymClass = documentSymbol("DocumentSymbol", Class, newRange(4, 0, 28, 1),
         newRange(4, 13, 4, 13),
+        "public",
         arrayList(fieldIntX, fieldClass1Cls, docSymConstructor, methodFoo, entryInterface, enumLetter));
     final var docSymFile = documentSymbol("DocumentSymbol.java", File, newRange(0, 0, 28, 1),
-        newRange(0, 0, 0, 0), arrayList(docSymClass));
+        newRange(0, 0, 0, 0), null, arrayList(docSymClass));
 
     final var answers = arrayList(docSymFile);
     checkDocumentSymbols(answers, virtualFile.findChild("DocumentSymbol.java"));
@@ -240,7 +250,26 @@ public class DocumentSymbolServiceTest extends LspLightBasePlatformTestCase {
                                                @NotNull SymbolKind kind,
                                                @NotNull Range range,
                                                @NotNull Range selectionRange,
+                                               @Nullable String detail,
                                                @Nullable List<@NotNull DocumentSymbol> children) {
-    return new DocumentSymbol(name, kind, range, selectionRange, null, children);
+    return new DocumentSymbol(name, kind, range, selectionRange, detail, children);
+  }
+
+  @NotNull
+  private static DocumentSymbol documentSymbol(@NotNull String name,
+                                               @NotNull SymbolKind kind,
+                                               @NotNull Range range,
+                                               @NotNull Range selectionRange,
+                                               @Nullable String detail) {
+    return documentSymbol(name, kind, range, selectionRange, detail, arrayList());
+  }
+
+  @NotNull
+  private static DocumentSymbol documentSymbol(@NotNull String name,
+                                               @NotNull SymbolKind kind,
+                                               @NotNull Range range,
+                                               @NotNull Range selectionRange,
+                                               @Nullable List<@NotNull DocumentSymbol> children) {
+    return documentSymbol(name, kind, range, selectionRange, null, children);
   }
 }

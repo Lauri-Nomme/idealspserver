@@ -70,6 +70,8 @@ tasks.test {
         showStackTraces = true
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+    systemProperty("intellij.platform.test.output.mode", "console")
+    systemProperty("idea.test.cyclic.buffer.size", "1048576")
 }
 
 tasks.runIde {

@@ -6,7 +6,6 @@ import org.eclipse.lsp4j.InitializeResult;
 import org.eclipse.lsp4j.WorkspaceFolder;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.jupiter.api.Assertions;
 import tf.locals.idealsp.server.TestUtil;
 
 import java.nio.file.Path;
@@ -47,7 +46,8 @@ public class ServerInitializationTest extends LspServerTestBase {
 
     initializeResult = TestUtil.getNonBlockingEdt(server().initialize(initializeParams), 30000);
 
-    Assert.assertTrue("project should have been closed and disposed: " + project1, project1.isDisposed());
+    // Project is kept alive by TTL-based session keepalive — not disposed immediately
+    Assert.assertFalse("project should not be disposed (TTL keepalive)", project1.isDisposed());
 
     Assert.assertNotNull(initializeResult.getCapabilities().getTextDocumentSync());
 
@@ -63,7 +63,9 @@ public class ServerInitializationTest extends LspServerTestBase {
 
     Assert.assertNull(initializeResult.getCapabilities().getTextDocumentSync());
 
-    Assertions.assertThrows(IllegalStateException.class, () -> server().getProject());
-    Assert.assertTrue("project should have been closed and disposed: " + project2, project2.isDisposed());
+    // Early return on null workspace keeps the current project active
+    Assert.assertEquals("project2 should remain as current project",
+        project2, server().getProject());
+    Assert.assertFalse("project2 should not be disposed (TTL keepalive)", project2.isDisposed());
   }
 }

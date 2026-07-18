@@ -17,13 +17,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiEnumConstant;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifier;
+import tf.locals.idealsp.server.symbol.util.SymbolUtil;
 import org.eclipse.lsp4j.DocumentSymbol;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.SymbolInformation;
@@ -151,7 +150,13 @@ final public class DocumentSymbolService {
               MiscUtil.offsetToPosition(document, selectionRange.getStartOffset()),
               MiscUtil.offsetToPosition(document, selectionRange.getEndOffset())));
         } else if (value instanceof PsiClass psiClass) {
-          curSymbol.setKind(SymbolKind.Class);
+          if (psiClass.isInterface()) {
+            curSymbol.setKind(SymbolKind.Interface);
+          } else if (psiClass.isEnum()) {
+            curSymbol.setKind(SymbolKind.Enum);
+          } else {
+            curSymbol.setKind(SymbolKind.Class);
+          }
           setClassDetail(curSymbol, psiClass);
           if (psiClass.getContainingFile() != psiFile) return null;
           var ideaRange = psiClass.getTextRange();
@@ -162,6 +167,30 @@ final public class DocumentSymbolService {
           curSymbol.setSelectionRange(new Range(
               MiscUtil.offsetToPosition(document, selectionRange.getStartOffset()),
               MiscUtil.offsetToPosition(document, selectionRange.getEndOffset())));
+        } else if (value instanceof PsiFile psiFileVal) {
+          curSymbol.setKind(SymbolKind.File);
+          var ideaRange = psiFileVal.getTextRange();
+          if (ideaRange != null) {
+            curSymbol.setRange(new Range(
+                MiscUtil.offsetToPosition(document, ideaRange.getStartOffset()),
+                MiscUtil.offsetToPosition(document, ideaRange.getEndOffset())));
+            curSymbol.setSelectionRange(new Range(
+                MiscUtil.offsetToPosition(document, psiFileVal.getTextOffset()),
+                MiscUtil.offsetToPosition(document, psiFileVal.getTextOffset())));
+          }
+        } else if (value instanceof PsiElement element) {
+          if (element.getContainingFile() != psiFile) return null;
+          var kind = SymbolUtil.getSymbolKind(viewElement.getPresentation());
+          curSymbol.setKind(kind);
+          var ideaRange = element.getTextRange();
+          if (ideaRange != null) {
+            curSymbol.setRange(new Range(
+                MiscUtil.offsetToPosition(document, ideaRange.getStartOffset()),
+                MiscUtil.offsetToPosition(document, ideaRange.getEndOffset())));
+            curSymbol.setSelectionRange(new Range(
+                MiscUtil.offsetToPosition(document, element.getTextOffset()),
+                MiscUtil.offsetToPosition(document, element.getTextOffset())));
+          }
         } else {
           curSymbol.setKind(SymbolKind.Object);
         }
