@@ -1,6 +1,5 @@
 package tf.locals.idealsp.server.commands;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.concurrency.AppExecutorUtil;
@@ -13,7 +12,6 @@ import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public abstract class LspCommand<R> {
@@ -45,14 +43,10 @@ public abstract class LspCommand<R> {
   private @Nullable R getResult(@NotNull LspPath path,
                                 @NotNull Project project,
                                 @Nullable CancelChecker cancelToken) {
-    final AtomicReference<R> ref = new AtomicReference<>();
-    ApplicationManager.getApplication()
-        .invokeAndWait(
-            () -> ref.set(MiscUtil.produceWithPsiFileInReadAction(
-                project,
-                path,
-                (psiFile) -> execute(new ExecutorContext(psiFile, project, cancelToken))
-            )));
-    return ref.get();
+    return MiscUtil.produceWithPsiFileInReadAction(
+        project,
+        path,
+        (psiFile) -> execute(new ExecutorContext(psiFile, project, cancelToken))
+    );
   }
 }
