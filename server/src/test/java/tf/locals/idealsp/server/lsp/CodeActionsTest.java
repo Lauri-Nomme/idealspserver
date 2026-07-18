@@ -52,7 +52,9 @@ public class CodeActionsTest extends LspServerTestBase {
     var expectedActions = Stream.of(
         "Change variable 'a' type to 'String'",
         "Copy string literal text to the clipboard",
+        "Extract Method",
         "Inject language or reference",
+        "Introduce Variable",
         "Split into declaration and assignment"
     ).sorted().toList();
     var actionTitles = codeActions.stream().map(it -> it.getRight().getTitle()).sorted().toList();
