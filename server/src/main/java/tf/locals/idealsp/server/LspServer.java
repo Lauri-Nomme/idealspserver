@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.util.messages.MessageBusConnection;
 import org.eclipse.lsp4j.*;
+import static tf.locals.idealsp.server.util.MiscUtil.with;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageClientAware;
@@ -28,6 +29,9 @@ import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
 import tf.locals.idealsp.server.inspections.InspectionService;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyCommand;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyParams;
+import tf.locals.idealsp.server.refactoring.RefactorCommand;
+import tf.locals.idealsp.server.refactoring.RefactorParams;
+import tf.locals.idealsp.server.refactoring.RefactorResult;
 import tf.locals.idealsp.server.semantic.SemanticMatch;
 import tf.locals.idealsp.server.semantic.SemanticSearchCommand;
 import tf.locals.idealsp.server.semantic.SemanticSearchParams;
@@ -173,7 +177,7 @@ it.setHoverProvider(true);
       it.setDocumentRangeFormattingProvider(true);
       it.setDocumentOnTypeFormattingProvider(defaultOnTypeFormattingOptions());
 
-      it.setRenameProvider(true);
+      it.setRenameProvider(MiscUtil.with(new RenameOptions(), ro -> ro.setPrepareProvider(true)));
 //      it.setDocumentLinkProvider(null);
 //      it.setExecuteCommandProvider(new ExecuteCommandOptions());
 
@@ -383,6 +387,19 @@ it.setCallHierarchyProvider(true);
     } catch (Exception e) {
       LOG.error("semanticSearch() failed", e);
       return MiscUtil.failed("semanticSearch", e.getMessage());
+    }
+  }
+
+  @Override
+  @Override
+  public CompletableFuture<RefactorResult> refactor(@NotNull RefactorParams params) {
+    try {
+      var project = getProject();
+      return new RefactorCommand(params).runAsync(project, LspPath.fromLspUri(params.getUri()));
+    } catch (Exception e) {
+      LOG.error("refactor() failed", e);
+      return CompletableFuture.completedFuture(
+          new RefactorResult(params.getType(), false, e.getMessage()));
     }
   }
 
