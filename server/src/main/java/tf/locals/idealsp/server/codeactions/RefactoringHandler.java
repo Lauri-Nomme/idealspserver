@@ -11,7 +11,6 @@ import com.intellij.psi.PsiType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import java.util.List;
-
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -40,44 +39,54 @@ public final class RefactoringHandler {
   public static boolean applyExtractMethod(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file,
                                             @Nullable String methodName) {
     try {
-      Class<?> handlerClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodHandler");
-      Class<?> processorClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodProcessor");
-
+      // Ensure the editor has a valid selection
       var selectionModel = editor.getSelectionModel();
-      if (!selectionModel.hasSelection()) {
+      com.intellij.openapi.util.TextRange range;
+      if (selectionModel.hasSelection()) {
+        range = new com.intellij.openapi.util.TextRange(
+            selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
+      } else {
+        Class<?> handlerClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodHandler");
         Method getElements = handlerClass.getMethod("getElements", Project.class, Editor.class, PsiFile.class);
         PsiElement[] elements = (PsiElement[]) getElements.invoke(null, project, editor, file);
-        if (elements == null || elements.length == 0) return false;
-        if (elements.length == 1) {
-          var range = elements[0].getTextRange();
-          selectionModel.setSelection(range.getStartOffset(), range.getEndOffset());
-        } else {
-          int start = Integer.MAX_VALUE, end = -1;
-          for (PsiElement el : elements) {
-            start = Math.min(start, el.getTextRange().getStartOffset());
-            end = Math.max(end, el.getTextRange().getEndOffset());
-          }
-          if (start < end) selectionModel.setSelection(start, end);
+        if (elements == null || elements.length == 0) { LOG.warn("applyExtractMethod: no elements"); return false; }
+        int start = Integer.MAX_VALUE, end = -1;
+        for (PsiElement el : elements) {
+          start = Math.min(start, el.getTextRange().getStartOffset());
+          end = Math.max(end, el.getTextRange().getEndOffset());
         }
+        if (start >= end) { LOG.warn("applyExtractMethod: invalid range"); return false; }
+        selectionModel.setSelection(start, end);
+        range = new com.intellij.openapi.util.TextRange(start, end);
       }
 
+      // Use ExtractMethodProcessor directly — synchronous, no coroutines, no dialogs
+      Class<?> handlerClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodHandler");
+      Class<?> processorClass = Class.forName("com.intellij.refactoring.extractMethod.ExtractMethodProcessor");
       Method getElements = handlerClass.getMethod("getElements", Project.class, Editor.class, PsiFile.class);
       PsiElement[] elements = (PsiElement[]) getElements.invoke(null, project, editor, file);
-      if (elements == null || elements.length == 0) return false;
+      if (elements == null || elements.length == 0) { LOG.warn("applyExtractMethod: no elements after selection"); return false; }
 
-      Method getProcessor = handlerClass.getDeclaredMethod("getProcessor", PsiElement[].class, Project.class, PsiFile.class, Editor.class, boolean.class, java.util.function.Consumer.class);
-      getProcessor.setAccessible(true);
-      Object processor = getProcessor.invoke(null, elements, project, file, editor, false, null);
-      if (processor == null) return false;
+      // Call the private 6-param getProcessor with our editor — it creates the processor,
+      // validates elements, and calls prepare(null) to skip the dialog
+      Method getProcessorPriv = handlerClass.getDeclaredMethod("getProcessor",
+          PsiElement[].class, Project.class, PsiFile.class, Editor.class,
+          boolean.class, java.util.function.Consumer.class);
+      getProcessorPriv.setAccessible(true);
+      Object processor = getProcessorPriv.invoke(null, elements, project, file, editor, false, null);
+      if (processor == null) { LOG.warn("applyExtractMethod: getProcessor returned null"); return false; }
 
-      if (methodName != null && !methodName.isEmpty()) {
-        var nameField = processorClass.getDeclaredField("myMethodName");
-        nameField.setAccessible(true);
-        if (nameField.get(processor) == null || ((String) nameField.get(processor)).isEmpty()) {
-          nameField.set(processor, methodName);
-        }
-      }
+      // prepareVariablesAndName() sets myVariableDatum which generateEmptyMethod needs.
+      // Must be called BEFORE setting the method name because it may override it.
+      Method prepVars = processorClass.getMethod("prepareVariablesAndName");
+      prepVars.invoke(processor);
 
+      // Set the method name — override the suggestion from prepareVariablesAndName
+      var nameField = processorClass.getDeclaredField("myMethodName");
+      nameField.setAccessible(true);
+      nameField.set(processor, methodName != null && !methodName.isEmpty() ? methodName : "newMethod");
+
+      // Call extractMethod synchronously — this runs inside a CommandProcessor on the EDT
       Method extractMethod = handlerClass.getMethod("extractMethod", Project.class, processorClass);
       extractMethod.invoke(null, project, processor);
       return true;

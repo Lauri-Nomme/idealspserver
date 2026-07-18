@@ -281,27 +281,34 @@ return t -> seen.add(keyExtractor.apply(t));
               .flatMap(Collection::stream)
               .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
 
-          var actionFound = Stream.of(
-                  quickFixes,
-                  errorFixes,
-                  inspectionFixes,
-                  intentions)
-              .flatMap(Collection::stream)
-              .map(it -> (Object) it)
-              .map(obj -> {
-                try {
-                  return obj.getClass().getMethod("getAction").invoke(obj);
-                } catch (Exception e) {
-                  return obj;
-                }
-              })
-              .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
-              .findFirst()
-              .orElse(null);
+          var title = codeAction.getTitle();
+          Object actionFound;
+          if (EXTRACT_METHOD_TITLE.equals(title) || INTRODUCE_VARIABLE_TITLE.equals(title) || INLINE_TITLE.equals(title)) {
+            // Skip internal descriptor search — builtin refactoring actions have UI-dependent
+            // handlers that don't work in headless mode. Route directly to our headless path.
+            actionFound = null;
+          } else {
+            actionFound = Stream.of(
+                    quickFixes,
+                    errorFixes,
+                    inspectionFixes,
+                    intentions)
+                .flatMap(Collection::stream)
+                .map(it -> (Object) it)
+                .map(obj -> {
+                  try {
+                    return obj.getClass().getMethod("getAction").invoke(obj);
+                  } catch (Exception e) {
+                    return obj;
+                  }
+                })
+                .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
+                .findFirst()
+                .orElse(null);
+          }
 
           if (actionFound == null) {
             // Try headless refactoring actions
-            var title = codeAction.getTitle();
             boolean[] handled = {false};
             CommandProcessor.getInstance().executeCommand(project, () -> {
               if (EXTRACT_METHOD_TITLE.equals(title)) {
@@ -316,6 +323,11 @@ return t -> seen.add(keyExtractor.apply(t));
             if (!handled[0]) {
               LOG.warn("No action descriptor found: " + title);
               return;
+            }
+            // Commit PSI changes to document so the WorkspaceEdit diff captures them
+            var psiDoc = PsiDocumentManager.getInstance(project).getDocument(psiFile);
+            if (psiDoc != null) {
+              PsiDocumentManager.getInstance(project).commitDocument(psiDoc);
             }
           } else {
             try {
