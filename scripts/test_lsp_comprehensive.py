@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
 Test script for IdeaLS LSP server - comprehensive version.
+
+Usage:
+  python3 test_lsp_comprehensive.py              # Run all tests
+  python3 test_lsp_comprehensive.py --test 39     # Run single test
+  python3 test_lsp_comprehensive.py --tests 39,40,41  # Run specific tests
+  python3 test_lsp_comprehensive.py --from 39     # Run from test 39 onward
+  python3 test_lsp_comprehensive.py --skip 37,38  # Run all except specified
 """
 
+import argparse
 import json
 import os
 import socket
@@ -158,6 +166,33 @@ def drain_notifications(sock, seconds=5):
             content = json.dumps(reply)
             sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
 
+
+def parse_test_args():
+    parser = argparse.ArgumentParser(description="Run LSP comprehensive tests")
+    parser.add_argument("--test", "-t", type=int, help="Run a single test by number")
+    parser.add_argument("--tests", type=str, help="Comma-separated list of test numbers")
+    parser.add_argument("--from", dest="from_num", type=int, help="Run from test N onward")
+    parser.add_argument("--skip", type=str, help="Comma-separated list of test numbers to skip")
+    return parser.parse_args()
+
+TEST_ARGS = parse_test_args()
+
+def should_run(test_num):
+    if TEST_ARGS.test is not None:
+        return test_num == TEST_ARGS.test
+    if TEST_ARGS.tests is not None:
+        selected = [int(t.strip()) for t in TEST_ARGS.tests.split(",")]
+        return test_num in selected
+    if TEST_ARGS.from_num is not None:
+        return test_num >= TEST_ARGS.from_num
+    if TEST_ARGS.skip is not None:
+        skipped = [int(t.strip()) for t in TEST_ARGS.skip.split(",")]
+        return test_num not in skipped
+    return True
+
+def skip_test(sock, test_num, test_name):
+    print(f"{test_num}. {test_name}: SKIPPED")
+    record_result(test_num, test_name, "SKIP")
 
 def test_all():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1355,7 +1390,6 @@ def test_all():
     # Refactoring tests — idealsp/refactor custom method
     # ============================================
 
-    # Test snippet for refactoring operations
     refactor_snippet = (
         "public class RefactorTest {\n"
         "    void test() {\n"
@@ -1366,110 +1400,103 @@ def test_all():
         "    }\n"
         "}\n"
     )
-
     test_uri = "file:///RefactorTest.java"
-    send_notification(sock, "textDocument/didOpen", {
-        "textDocument": {"uri": test_uri, "languageId": "java",
-                         "version": 1, "text": refactor_snippet}
-    })
-    drain_notifications(sock, seconds=2)
 
-    # 39. Refactor: extract-method — extract lines 3-4 into a method
-    sock.settimeout(10)
-    resp = send_and_recv(
-        sock,
-        "idealsp/refactor",
-        {
-            "uri": test_uri,
-            "type": "extract-method",
-            "position": {"line": 2, "character": 8},
-            "name": None,
-        },
-        39,
-    )
-    sock.settimeout(30)
-    applied = resp.get("result", {}).get("applied", False) if resp else False
-    if applied:
-        print(f"39. Refactor extract-method: OK")
-        record_result(39, "Refactor extract-method", "PASS")
+    if should_run(39) or should_run(40) or should_run(41):
+        send_notification(sock, "textDocument/didOpen", {
+            "textDocument": {"uri": test_uri, "languageId": "java",
+                             "version": 1, "text": refactor_snippet}
+        })
+        drain_notifications(sock, seconds=2)
+
+    if should_run(39):
+        sock.settimeout(10)
+        resp = send_and_recv(
+            sock,
+            "idealsp/refactor",
+            {"uri": test_uri, "type": "extract-method",
+             "position": {"line": 2, "character": 8}, "name": None},
+            39,
+        )
+        sock.settimeout(30)
+        applied = resp.get("result", {}).get("applied", False) if resp else False
+        if applied:
+            print(f"39. Refactor extract-method: OK")
+            record_result(39, "Refactor extract-method", "PASS")
+        else:
+            reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+            print(f"39. Refactor extract-method: FAILED - {reason}")
+            record_result(39, "Refactor extract-method", "KNOWN" if not resp else "FAIL", reason)
     else:
-        reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-        print(f"39. Refactor extract-method: FAILED - {reason}")
-        record_result(39, "Refactor extract-method", "KNOWN" if not resp else "FAIL", reason)
+        skip_test(sock, 39, "Refactor extract-method")
 
-    # 40. Refactor: introduce-variable — extract \"hello\" into a variable
-    sock.settimeout(10)
-    resp = send_and_recv(
-        sock,
-        "idealsp/refactor",
-        {
-            "uri": test_uri,
-            "type": "introduce-variable",
-            "position": {"line": 4, "character": 18},
-            "name": None,
-        },
-        40,
-    )
-    sock.settimeout(30)
-    applied = resp.get("result", {}).get("applied", False) if resp else False
-    if applied:
-        print(f"40. Refactor introduce-variable: OK")
-        record_result(40, "Refactor introduce-variable", "PASS")
+    if should_run(40):
+        sock.settimeout(10)
+        resp = send_and_recv(
+            sock,
+            "idealsp/refactor",
+            {"uri": test_uri, "type": "introduce-variable",
+             "position": {"line": 4, "character": 18}, "name": None},
+            40,
+        )
+        sock.settimeout(30)
+        applied = resp.get("result", {}).get("applied", False) if resp else False
+        if applied:
+            print(f"40. Refactor introduce-variable: OK")
+            record_result(40, "Refactor introduce-variable", "PASS")
+        else:
+            reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+            print(f"40. Refactor introduce-variable: FAILED - {reason}")
+            record_result(40, "Refactor introduce-variable", "KNOWN" if not resp else "FAIL", reason)
     else:
-        reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-        print(f"40. Refactor introduce-variable: FAILED - {reason}")
-        record_result(40, "Refactor introduce-variable", "KNOWN" if not resp else "FAIL", reason)
+        skip_test(sock, 40, "Refactor introduce-variable")
 
-    # Re-open snippet after refactoring modified it
-    send_notification(sock, "textDocument/didClose", {
-        "textDocument": {"uri": test_uri}
-    })
-    send_notification(sock, "textDocument/didOpen", {
-        "textDocument": {"uri": test_uri, "languageId": "java",
-                         "version": 2, "text": refactor_snippet}
-    })
-    drain_notifications(sock, seconds=2)
+    # Re-open snippet after refactoring modified it (if any refactoring ran)
+    if should_run(39) or should_run(40):
+        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
+        send_notification(sock, "textDocument/didOpen", {
+            "textDocument": {"uri": test_uri, "languageId": "java",
+                             "version": 2, "text": refactor_snippet}
+        })
+        drain_notifications(sock, seconds=2)
 
-    # 41. Refactor: inline — inline string literal into its usage
-    #     Position on the string literal "hello" at line 4 — inline should replace the string reference
-    sock.settimeout(10)
-    resp = send_and_recv(
-        sock,
-        "idealsp/refactor",
-        {
-            "uri": test_uri,
-            "type": "inline",
-            "position": {"line": 4, "character": 18},
-            "name": None,
-        },
-        41,
-    )
-    sock.settimeout(30)
-    applied = resp.get("result", {}).get("applied", False) if resp else False
-    if applied:
-        print(f"41. Refactor inline: OK")
-        record_result(41, "Refactor inline", "PASS")
+    if should_run(41):
+        sock.settimeout(10)
+        resp = send_and_recv(
+            sock,
+            "idealsp/refactor",
+            {"uri": test_uri, "type": "inline",
+             "position": {"line": 4, "character": 18}, "name": None},
+            41,
+        )
+        sock.settimeout(30)
+        applied = resp.get("result", {}).get("applied", False) if resp else False
+        if applied:
+            print(f"41. Refactor inline: OK")
+            record_result(41, "Refactor inline", "PASS")
+        else:
+            reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+            print(f"41. Refactor inline: FAILED - {reason}")
+            record_result(41, "Refactor inline", "KNOWN" if not resp else "PASS", reason)
     else:
-        reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-        print(f"41. Refactor inline: FAILED - {reason}")
-        # inline is P1, known to be finicky in headless mode
-        record_result(41, "Refactor inline", "KNOWN" if not resp else "PASS", reason)
+        skip_test(sock, 41, "Refactor inline")
 
-    # Close test snippet
-    send_notification(sock, "textDocument/didClose", {
-        "textDocument": {"uri": test_uri}
-    })
-    drain_notifications(sock, seconds=1)
+    if should_run(39) or should_run(40) or should_run(41):
+        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
+        drain_notifications(sock, seconds=1)
 
     # Test shutdown lifecycle
-    resp = send_and_recv(sock, "shutdown", {}, 42)
-    if resp and "result" in resp:
-        print(f"42. Shutdown: OK")
-        record_result(42, "Shutdown", "PASS")
-        send_notification(sock, "exit", {})
+    if should_run(42):
+        resp = send_and_recv(sock, "shutdown", {}, 42)
+        if resp and "result" in resp:
+            print(f"42. Shutdown: OK")
+            record_result(42, "Shutdown", "PASS")
+            send_notification(sock, "exit", {})
+        else:
+            print(f"42. Shutdown: FAILED")
+            record_result(42, "Shutdown", "FAIL")
     else:
-        print(f"42. Shutdown: FAILED")
-        record_result(42, "Shutdown", "FAIL")
+        skip_test(sock, 42, "Shutdown")
 
     sock.close()
     print_summary()
