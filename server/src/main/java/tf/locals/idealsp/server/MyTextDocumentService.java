@@ -10,6 +10,7 @@ import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.TextDocumentService;
 import org.jetbrains.annotations.NotNull;
 import tf.locals.idealsp.server.callhierarchy.*;
+import tf.locals.idealsp.server.typehierarchy.*;
 import tf.locals.idealsp.server.codeactions.CodeActionService;
 import tf.locals.idealsp.server.completions.CompletionService;
 import tf.locals.idealsp.server.diagnostics.DiagnosticsService;
@@ -305,6 +306,60 @@ public class MyTextDocumentService implements TextDocumentService {
         } catch (Exception e) {
             LOG.error("callHierarchyOutgoingCalls() failed", e);
             return MiscUtil.failed("callHierarchyOutgoingCalls", e.getMessage());
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<TypeHierarchyItem>> prepareTypeHierarchy(@NotNull TypeHierarchyPrepareParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("prepareTypeHierarchy() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return new PrepareTypeHierarchyCommand(params.getPosition())
+                    .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+        } catch (Exception e) {
+            LOG.error("prepareTypeHierarchy() failed", e);
+            return MiscUtil.failed("prepareTypeHierarchy", e.getMessage());
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<TypeHierarchyItem>> typeHierarchySupertypes(@NotNull TypeHierarchySupertypesParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("typeHierarchySupertypes() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return CompletableFuture.supplyAsync(() -> {
+                return com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction((com.intellij.openapi.util.Computable<List<TypeHierarchyItem>>) () ->
+                        new SupertypesCommand(params.getItem()).execute(project));
+            });
+        } catch (Exception e) {
+            LOG.error("typeHierarchySupertypes() failed", e);
+            return MiscUtil.failed("typeHierarchySupertypes", e.getMessage());
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<TypeHierarchyItem>> typeHierarchySubtypes(@NotNull TypeHierarchySubtypesParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("typeHierarchySubtypes() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return CompletableFuture.supplyAsync(() -> {
+                return com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction((com.intellij.openapi.util.Computable<List<TypeHierarchyItem>>) () ->
+                        new SubtypesCommand(params.getItem()).execute(project));
+            });
+        } catch (Exception e) {
+            LOG.error("typeHierarchySubtypes() failed", e);
+            return MiscUtil.failed("typeHierarchySubtypes", e.getMessage());
         }
     }
 
