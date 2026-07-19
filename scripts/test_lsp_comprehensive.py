@@ -1388,9 +1388,136 @@ def test_all():
             print(f"38. ResolveCompletionItem: TIMEOUT - no response")
             record_result(38, "ResolveCompletionItem", "KNOWN", "TIMEOUT")
     else:
-        for _n in list(range(1, 39)):
+        for _n in list(range(1, 43)):
             skip_test(sock, _n, f"Test {_n}")
-        print("Selective mode: skipping tests 1-38")
+        print("Selective mode: skipping tests 1-42")
+
+    # ============================================
+    # Type Hierarchy Tests (prepareTypeHierarchy)
+    # ============================================
+    test_th_file = os.path.join(PROJECT_ROOT, "server/test-data/typehierarchy/TypeHierarchyTest.java")
+    try:
+        with open(test_th_file) as f:
+            test_th_text = f.read()
+    except FileNotFoundError:
+        print("TEST_DATA_NOT_FOUND: test-data/typehierarchy/TypeHierarchyTest.java")
+        test_th_text = None
+
+    if test_th_text:
+        send_notification(
+            sock,
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": f"file://{test_th_file}",
+                    "languageId": "java",
+                    "version": 1,
+                    "text": test_th_text,
+                }
+            },
+        )
+        drain_notifications(sock, seconds=5)
+
+        # Test 39: prepareTypeHierarchy on ConcreteImpl class (line 15, char 7)
+        resp = send_and_recv(
+            sock,
+            "textDocument/prepareTypeHierarchy",
+            {
+                "textDocument": {"uri": f"file://{test_th_file}"},
+                "position": {"line": 15, "character": 7},
+            },
+            39,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            item_names = [i.get("name") for i in items]
+            if "ConcreteImpl" in item_names:
+                print(f"39. PrepareTypeHierarchy (ConcreteImpl): OK - Got {item_names}")
+                record_result(39, "PrepareTypeHierarchy ConcreteImpl", "PASS", str(item_names))
+            else:
+                print(f"39. PrepareTypeHierarchy: FAILED - Expected 'ConcreteImpl', got {item_names}")
+                record_result(39, "PrepareTypeHierarchy ConcreteImpl", "FAIL", str(item_names))
+        else:
+            print(f"39. PrepareTypeHierarchy: FAILED or no result - {resp}")
+            record_result(39, "PrepareTypeHierarchy ConcreteImpl", "FAIL")
+
+        concrete_item = None
+        if resp and "result" in resp and resp["result"]:
+            concrete_item = resp["result"][0]
+
+        # Test 40: typeHierarchy/supertypes on ConcreteImpl → should find AbstractBase
+        if concrete_item:
+            resp = send_and_recv(
+                sock,
+                "typeHierarchy/supertypes",
+                {"item": concrete_item},
+                40,
+            )
+            if resp and "result" in resp and resp["result"]:
+                super_names = sorted([i.get("name") for i in resp["result"]])
+                if "AbstractBase" in super_names:
+                    print(f"40. Supertypes ConcreteImpl: OK - Got {super_names}")
+                    record_result(40, "Supertypes ConcreteImpl", "PASS", str(super_names))
+                else:
+                    print(f"40. Supertypes ConcreteImpl: FAILED - Expected AbstractBase, got {super_names}")
+                    record_result(40, "Supertypes ConcreteImpl", "FAIL", str(super_names))
+            else:
+                print(f"40. Supertypes ConcreteImpl: FAILED or no result - {resp}")
+                record_result(40, "Supertypes ConcreteImpl", "FAIL")
+
+        # Test 41: prepareTypeHierarchy on AbstractBase line 8, char 16 (0-indexed: "abstract class AbstractBase {", char 16 = 'b')
+        resp = send_and_recv(
+            sock,
+            "textDocument/prepareTypeHierarchy",
+            {
+                "textDocument": {"uri": f"file://{test_th_file}"},
+                "position": {"line": 8, "character": 16},
+            },
+            41,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            item_names = [i.get("name") for i in items]
+            if "AbstractBase" in item_names:
+                print(f"41. PrepareTypeHierarchy (AbstractBase): OK - Got {item_names}")
+                record_result(41, "PrepareTypeHierarchy AbstractBase", "PASS", str(item_names))
+            else:
+                print(f"41. PrepareTypeHierarchy: FAILED - Expected 'AbstractBase', got {item_names}")
+                record_result(41, "PrepareTypeHierarchy AbstractBase", "FAIL", str(item_names))
+        else:
+            print(f"41. PrepareTypeHierarchy: FAILED or no result - {resp}")
+            record_result(41, "PrepareTypeHierarchy AbstractBase", "FAIL")
+
+        abstract_item = None
+        if resp and "result" in resp and resp["result"]:
+            abstract_item = resp["result"][0]
+
+        # Test 42: typeHierarchy/subtypes on AbstractBase → should find ConcreteImpl
+        if abstract_item:
+            resp = send_and_recv(
+                sock,
+                "typeHierarchy/subtypes",
+                {"item": abstract_item},
+                42,
+            )
+            if resp and "result" in resp and resp["result"]:
+                sub_names = sorted([i.get("name") for i in resp["result"]])
+                if "ConcreteImpl" in sub_names:
+                    print(f"42. Subtypes AbstractBase: OK - Got {sub_names}")
+                    record_result(42, "Subtypes AbstractBase", "PASS", str(sub_names))
+                else:
+                    print(f"42. Subtypes AbstractBase: FAILED - Expected ConcreteImpl, got {sub_names}")
+                    record_result(42, "Subtypes AbstractBase", "FAIL", str(sub_names))
+            else:
+                print(f"42. Subtypes AbstractBase: FAILED or no result - {resp}")
+                record_result(42, "Subtypes AbstractBase", "FAIL")
+
+        # Cleanup: close test file
+        send_notification(
+            sock,
+            "textDocument/didClose",
+            {"textDocument": {"uri": f"file://{test_th_file}"}},
+        )
 
     # ============================================
     # Refactoring tests — idealsp/refactor custom method
@@ -1409,7 +1536,7 @@ def test_all():
     refactor_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/RefactorTest.java")
     test_uri = f"file://{refactor_test_file}"
 
-    if should_run(39) or should_run(40) or should_run(41):
+    if should_run(43) or should_run(44) or should_run(45):
         with open(refactor_test_file, "w") as f:
             f.write(refactor_snippet)
         send_notification(sock, "textDocument/didOpen", {
@@ -1418,50 +1545,50 @@ def test_all():
         })
         drain_notifications(sock, seconds=2)
 
-    if should_run(39):
+    if should_run(43):
         sock.settimeout(10)
         resp = send_and_recv(
             sock,
             "idealsp/refactor",
             {"uri": test_uri, "type": "extract-method",
              "position": {"line": 2, "character": 8}, "name": None},
-            39,
+            43,
         )
         sock.settimeout(30)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
-            print(f"39. Refactor extract-method: OK")
-            record_result(39, "Refactor extract-method", "PASS")
+            print(f"43. Refactor extract-method: OK")
+            record_result(43, "Refactor extract-method", "PASS")
         else:
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-            print(f"39. Refactor extract-method: FAILED - {reason}")
-            record_result(39, "Refactor extract-method", "KNOWN" if not resp else "FAIL", reason)
+            print(f"43. Refactor extract-method: FAILED - {reason}")
+            record_result(43, "Refactor extract-method", "KNOWN" if not resp else "FAIL", reason)
     else:
-        skip_test(sock, 39, "Refactor extract-method")
+        skip_test(sock, 43, "Refactor extract-method")
 
-    if should_run(40):
+    if should_run(44):
         sock.settimeout(10)
         resp = send_and_recv(
             sock,
             "idealsp/refactor",
             {"uri": test_uri, "type": "introduce-variable",
              "position": {"line": 4, "character": 18}, "name": None},
-            40,
+            44,
         )
         sock.settimeout(30)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
-            print(f"40. Refactor introduce-variable: OK")
-            record_result(40, "Refactor introduce-variable", "PASS")
+            print(f"44. Refactor introduce-variable: OK")
+            record_result(44, "Refactor introduce-variable", "PASS")
         else:
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-            print(f"40. Refactor introduce-variable: FAILED - {reason}")
-            record_result(40, "Refactor introduce-variable", "KNOWN" if not resp else "FAIL", reason)
+            print(f"44. Refactor introduce-variable: FAILED - {reason}")
+            record_result(44, "Refactor introduce-variable", "KNOWN" if not resp else "FAIL", reason)
     else:
-        skip_test(sock, 40, "Refactor introduce-variable")
+        skip_test(sock, 44, "Refactor introduce-variable")
 
     # Re-open snippet after refactoring modified it (if any refactoring ran)
-    if should_run(39) or should_run(40):
+    if should_run(43) or should_run(44):
         send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
         send_notification(sock, "textDocument/didOpen", {
             "textDocument": {"uri": test_uri, "languageId": "java",
@@ -1469,45 +1596,45 @@ def test_all():
         })
         drain_notifications(sock, seconds=2)
 
-    if should_run(41):
+    if should_run(45):
         sock.settimeout(10)
         resp = send_and_recv(
             sock,
             "idealsp/refactor",
             {"uri": test_uri, "type": "inline",
              "position": {"line": 4, "character": 18}, "name": None},
-            41,
+            45,
         )
         sock.settimeout(30)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
-            print(f"41. Refactor inline: OK")
-            record_result(41, "Refactor inline", "PASS")
+            print(f"45. Refactor inline: OK")
+            record_result(45, "Refactor inline", "PASS")
         else:
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
-            print(f"41. Refactor inline: FAILED - {reason}")
-            record_result(41, "Refactor inline", "KNOWN" if not resp else "PASS", reason)
+            print(f"45. Refactor inline: FAILED - {reason}")
+            record_result(45, "Refactor inline", "KNOWN" if not resp else "PASS", reason)
     else:
-        skip_test(sock, 41, "Refactor inline")
+        skip_test(sock, 45, "Refactor inline")
 
-    if should_run(39) or should_run(40) or should_run(41):
+    if should_run(43) or should_run(44) or should_run(45):
         send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
         drain_notifications(sock, seconds=1)
         if os.path.exists(refactor_test_file):
             os.remove(refactor_test_file)
 
     # Test shutdown lifecycle
-    if should_run(42):
-        resp = send_and_recv(sock, "shutdown", {}, 42)
+    if should_run(46):
+        resp = send_and_recv(sock, "shutdown", {}, 46)
         if resp and "result" in resp:
-            print(f"42. Shutdown: OK")
-            record_result(42, "Shutdown", "PASS")
+            print(f"46. Shutdown: OK")
+            record_result(46, "Shutdown", "PASS")
             send_notification(sock, "exit", {})
         else:
-            print(f"42. Shutdown: FAILED")
-            record_result(42, "Shutdown", "FAIL")
+            print(f"46. Shutdown: FAILED")
+            record_result(46, "Shutdown", "FAIL")
     else:
-        skip_test(sock, 42, "Shutdown")
+        skip_test(sock, 46, "Shutdown")
 
     sock.close()
     print_summary()

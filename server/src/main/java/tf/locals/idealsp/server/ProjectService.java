@@ -186,46 +186,75 @@ public class ProjectService {
    * Ensure the project has at least one module with the workspace folder as a content/source root.
    * Without this, GlobalSearchScope (which relies on IntelliJ's word index) won't find any
    * project files, breaking cross-file references, find usages, etc.
+   * Also ensures test-data directories under content roots are source folders so that
+   * stub-index-based searches (ClassInheritorsSearch, etc.) find classes in test fixtures.
    */
   private void ensureSourceRoots(@NotNull Project project, @NotNull LspPath projectPath) {
     var moduleManager = ModuleManager.getInstance(project);
     var modules = moduleManager.getModules();
 
-    // Check if any module already has content roots
-    for (var module : modules) {
-      var rootManager = ModuleRootManager.getInstance(module);
-      var contentRoots = rootManager.getContentRoots();
-      if (contentRoots.length > 0) {
+    if (modules.length == 0) {
+      var projectDir = VirtualFileManager.getInstance().findFileByUrl(projectPath.toLspUri());
+      if (projectDir == null) projectDir = projectPath.refreshAndFindVirtualFile();
+      if (projectDir == null) {
+        LOG.warn("Cannot find virtual file for project path: " + projectPath);
         return;
       }
-    }
-
-    // No content roots found - add the workspace folder as a source root
-    var projectDir = VirtualFileManager.getInstance().findFileByUrl(projectPath.toLspUri());
-    if (projectDir == null) {
-      projectDir = projectPath.refreshAndFindVirtualFile();
-    }
-    if (projectDir == null) {
-      LOG.warn("Cannot find virtual file for project path: " + projectPath);
+      LOG.info("Setting up source roots for workspace folder: " + projectPath);
+      final var dir = projectDir;
+      ApplicationManager.getApplication().invokeAndWait(() ->
+        ApplicationManager.getApplication().runWriteAction(() -> {
+          try {
+            var module = moduleManager.newModule(
+                Files.createTempDirectory("ideals-lsp-").resolve("lsp-module.iml"),
+                "JAVA_MODULE");
+            var model = ModuleRootManager.getInstance(module).getModifiableModel();
+            ContentEntry ce = model.addContentEntry(dir);
+            ce.addSourceFolder(dir, false);
+            model.commit();
+            LOG.info("Added source root: " + dir.getUrl());
+          } catch (Exception e) {
+            LOG.warn("Failed to set up source roots for workspace: " + projectPath, e);
+          }
+        })
+      );
       return;
     }
 
-    LOG.info("Setting up source roots for workspace folder: " + projectPath);
-    final var dir = projectDir;
+    // Existing modules may have content roots but test-data dirs under them
+    // may not be source folders. Add them so stub indexing covers test fixtures.
     ApplicationManager.getApplication().invokeAndWait(() ->
       ApplicationManager.getApplication().runWriteAction(() -> {
-        try {
-          var module = modules.length > 0 ? modules[0]
-              : moduleManager.newModule(
-                  Files.createTempDirectory("ideals-lsp-").resolve("lsp-module.iml"),
-                  "JAVA_MODULE");
-          var modifiableModel = ModuleRootManager.getInstance(module).getModifiableModel();
-          ContentEntry contentEntry = modifiableModel.addContentEntry(dir);
-          contentEntry.addSourceFolder(dir, false);
-          modifiableModel.commit();
-          LOG.info("Added source root: " + dir.getUrl());
-        } catch (Exception e) {
-          LOG.warn("Failed to set up source roots for workspace: " + projectPath, e);
+        for (var module : modules) {
+          var rootManager = ModuleRootManager.getInstance(module);
+          for (ContentEntry entry : rootManager.getContentEntries()) {
+            var contentRootFile = entry.getFile();
+            if (contentRootFile == null) continue;
+            var testDataFile = contentRootFile.findChild("test-data");
+            if (testDataFile == null) continue;
+            boolean alreadySource = false;
+            for (var sf : entry.getSourceFolders()) {
+              if (testDataFile.equals(sf.getFile())) {
+                alreadySource = true;
+                break;
+              }
+            }
+            if (!alreadySource) {
+              try {
+                var model = rootManager.getModifiableModel();
+                for (ContentEntry ce : model.getContentEntries()) {
+                  if (ce.getUrl().equals(entry.getUrl())) {
+                    ce.addSourceFolder(testDataFile, true);
+                    break;
+                  }
+                }
+                model.commit();
+                LOG.warn("Added test-data source folder: " + testDataFile.getUrl());
+              } catch (Exception e) {
+                LOG.warn("Failed to add test-data source folder: " + testDataFile.getUrl(), e);
+              }
+            }
+          }
         }
       })
     );
