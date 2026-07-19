@@ -31,16 +31,20 @@ public class SymbolTest extends LspServerTestBase {
     final var testConstructor = documentSymbol("DocumentSymbolIntegratingTest(int)",
         SymbolKind.Method,
         range(1, 2, 1, 48),
-        range(1, 9, 1, 9), List.of());
+        range(1, 9, 1, 9),
+        "public DocumentSymbolIntegratingTest(int): void",
+        List.of());
     final var testClass = documentSymbol("DocumentSymbolIntegratingTest",
         SymbolKind.Class,
         range(0, 0, 2, 1),
         range(0, 13, 0, 13),
+        "public",
         List.of(testConstructor));
 
     final var testFile = documentSymbol("DocumentSymbolIntegratingTest.java",
         SymbolKind.File,
         range(0, 0, 2, 1), range(0, 0, 0, 0),
+        null,
         List.of(testClass));
     final var answer = List.of(testFile);
 
@@ -69,8 +73,9 @@ public class SymbolTest extends LspServerTestBase {
                                                @NotNull SymbolKind kind,
                                                @NotNull Range range,
                                                @NotNull Range selectionRange,
+                                               @Nullable String detail,
                                                @Nullable List<@NotNull DocumentSymbol> children) {
-    return new DocumentSymbol(name, kind, range, selectionRange, null, children == null ? null :
+    return new DocumentSymbol(name, kind, range, selectionRange, detail, children == null ? null :
         new ArrayList<>(children));
   }
 

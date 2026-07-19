@@ -69,7 +69,7 @@ public class RenameCommandJavaTest extends RenameCommandTestBase {
   }
 
   @Test
-  public void testRenameClass() {
+  public void testRenameClassPos1() {
     final var newName = "Inner111";
 
     final var answer = List.of(
@@ -85,11 +85,27 @@ public class RenameCommandJavaTest extends RenameCommandTestBase {
         ))
     );
 
-    var pos = new Position(5, 15);
-    checkRename(answer, pos, newName);
+    checkRename(answer, new Position(5, 15), newName);
+  }
 
-    pos = new Position(5, 42);
-    checkRename(answer, pos, newName);
+  @Test
+  public void testRenameClassPos2() {
+    final var newName = "Inner111";
+
+    final var answer = List.of(
+        textDocumentEdit(orgTestClassUri, list(
+            newTextEdit(7, 22, 7, 28, newName),
+            newTextEdit(9, 11, 9, 17, newName)
+        )),
+        textDocumentEdit(renameTestUri, list(
+            newTextEdit(5, 14, 5, 20, newName),
+            newTextEdit(5, 41, 5, 47, newName),
+            newTextEdit(6, 14, 6, 20, newName),
+            newTextEdit(6, 48, 6, 54, newName)
+        ))
+    );
+
+    checkRename(answer, new Position(5, 42), newName);
   }
   
   @Test

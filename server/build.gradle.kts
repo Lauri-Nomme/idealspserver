@@ -63,6 +63,15 @@ intellijPlatform {
 
 tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+        showExceptions = true
+        showStackTraces = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    systemProperty("intellij.platform.test.output.mode", "console")
+    systemProperty("idea.test.cyclic.buffer.size", "1048576")
 }
 
 tasks.runIde {

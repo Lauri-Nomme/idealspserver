@@ -12,6 +12,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.ui.EDT;
 import org.eclipse.lsp4j.Position;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,18 +36,18 @@ public class EditorUtil {
     assert doc != null;
     Editor created;
     try {
-      // Use invokeAndWait outside write action to avoid IntelliJ 2026.1 modal progress issue
-      Ref<Editor> editorRef = new Ref<>();
-      ApplicationManager.getApplication().invokeAndWait(() -> {
-        editorRef.set(editorFactory.createEditor(doc, file.getProject()));
-      });
-      created = editorRef.get();
+      if (EDT.isCurrentThreadEdt()) {
+        created = editorFactory.createEditor(doc, file.getProject());
+      } else {
+        Ref<Editor> editorRef = new Ref<>();
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          editorRef.set(editorFactory.createEditor(doc, file.getProject()));
+        });
+        created = editorRef.get();
+      }
     } catch (Exception e) {
       LOG.warn("editorFactory.createEditor threw " + e.getClass().getName() 
           + " for file=" + file.getName() + " - releasing any leaked editor");
-      // If EditorFactory.createEditor threw (e.g., due to ProcessCanceledException
-      // during EditorImpl construction), the editor may be registered with EditorFactory
-      // but not returned. We need to find and release it.
       for (Editor editor : editorFactory.getAllEditors()) {
         if (editor.getDocument() == doc && !editor.isDisposed()) {
           editorFactory.releaseEditor(editor);
@@ -56,9 +57,13 @@ public class EditorUtil {
     }
     final int line = position.getLine();
     final int character = position.getCharacter();
-    ApplicationManager.getApplication().invokeAndWait(() -> {
+    if (EDT.isCurrentThreadEdt()) {
       created.getCaretModel().moveToLogicalPosition(new LogicalPosition(line, character));
-    });
+    } else {
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        created.getCaretModel().moveToLogicalPosition(new LogicalPosition(line, character));
+      });
+    }
 
     Disposer.register(context, () -> {
       if (!created.isDisposed()) {
