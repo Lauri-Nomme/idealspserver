@@ -14,6 +14,7 @@ import tf.locals.idealsp.server.util.MiscUtil;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public abstract class LspCommand<R> {
@@ -33,26 +34,30 @@ public abstract class LspCommand<R> {
       return CompletableFuture.failedFuture(new RuntimeException("File not found: " + path));
     }
 
+    return runAsyncWithCancel(project, cancelToken -> MiscUtil.produceWithPsiFileInReadAction(
+        project, path, (psiFile) -> execute(new ExecutorContext(psiFile, project, cancelToken))));
+  }
+
+  public @NotNull CompletableFuture<@Nullable R> runAsync(@NotNull Project project) {
+    return runAsyncWithCancel(project, cancelToken -> ApplicationManager.getApplication().runReadAction(
+        (com.intellij.openapi.util.Computable<R>) () -> execute(new ExecutorContext(project, cancelToken))));
+  }
+
+  private @NotNull CompletableFuture<@Nullable R> runAsyncWithCancel(@NotNull Project project,
+                                                                      @NotNull Function<@Nullable CancelChecker, R> action) {
     LOG.warn(getMessageSupplier().get());
     Executor executor = AppExecutorUtil.getAppExecutorService();
     if (isCancellable()) {
-      return CompletableFutures.computeAsync(executor, cancelToken -> getResult(path, project, cancelToken));
+      return CompletableFutures.computeAsync(executor, cancelToken -> getResult(action, cancelToken));
     } else {
-      return CompletableFuture.supplyAsync(() -> getResult(path, project, null), executor);
+      return CompletableFuture.supplyAsync(() -> getResult(action, null), executor);
     }
   }
 
-  private @Nullable R getResult(@NotNull LspPath path,
-                                @NotNull Project project,
+  private @Nullable R getResult(@NotNull Function<@Nullable CancelChecker, R> action,
                                 @Nullable CancelChecker cancelToken) {
-    final AtomicReference<R> ref = new AtomicReference<>();
-    ApplicationManager.getApplication()
-        .invokeAndWait(
-            () -> ref.set(MiscUtil.produceWithPsiFileInReadAction(
-                project,
-                path,
-                (psiFile) -> execute(new ExecutorContext(psiFile, project, cancelToken))
-            )));
+    AtomicReference<R> ref = new AtomicReference<>();
+    ApplicationManager.getApplication().invokeAndWait(() -> ref.set(action.apply(cancelToken)));
     return ref.get();
   }
 }

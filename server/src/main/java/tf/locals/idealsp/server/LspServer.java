@@ -29,6 +29,9 @@ import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
 import tf.locals.idealsp.server.inspections.InspectionService;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyCommand;
 import tf.locals.idealsp.server.codeactions.CodeActionApplyParams;
+import tf.locals.idealsp.server.projectstructure.ProjectStructureCommand;
+import tf.locals.idealsp.server.projectstructure.ProjectStructureParams;
+import tf.locals.idealsp.server.projectstructure.ProjectStructureResult;
 import tf.locals.idealsp.server.refactoring.RefactorCommand;
 import tf.locals.idealsp.server.refactoring.RefactorParams;
 import tf.locals.idealsp.server.refactoring.RefactorResult;
@@ -394,12 +397,26 @@ it.setTypeHierarchyProvider(true);
   @Override
   public CompletableFuture<RefactorResult> refactor(@NotNull RefactorParams params) {
     try {
-      var project = getProject();
-      return new RefactorCommand(params).runAsync(project, LspPath.fromLspUri(params.getUri()));
+      var proj = getProject();
+      return new RefactorCommand(params).runAsync(proj, LspPath.fromLspUri(params.getUri()));
     } catch (Exception e) {
       LOG.error("refactor() failed", e);
       return CompletableFuture.completedFuture(
           new RefactorResult(params.getType(), false, e.getMessage()));
+    }
+  }
+
+  @Override
+  public CompletableFuture<ProjectStructureResult> projectStructure(@NotNull ProjectStructureParams params) {
+    try {
+      if (project == null) {
+        LOG.warn("projectStructure() called but project is not yet initialized");
+        return CompletableFuture.completedFuture(new ProjectStructureResult());
+      }
+      return new ProjectStructureCommand(params.getScope()).runAsync(project);
+    } catch (Exception e) {
+      LOG.error("projectStructure() failed", e);
+      return MiscUtil.failed("projectStructure", e.getMessage());
     }
   }
 
