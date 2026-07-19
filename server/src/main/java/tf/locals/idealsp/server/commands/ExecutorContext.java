@@ -8,7 +8,7 @@ import org.jetbrains.annotations.Nullable;
 
 final public class ExecutorContext {
 
-  @NotNull
+  @Nullable
   private final PsiFile file;
   @NotNull
   private final Project project;
@@ -21,7 +21,13 @@ final public class ExecutorContext {
     this.cancelToken = cancelToken;
   }
 
-  public @NotNull PsiFile getPsiFile() {
+  public ExecutorContext(@NotNull Project project, @Nullable CancelChecker cancelToken) {
+    this.file = null;
+    this.project = project;
+    this.cancelToken = cancelToken;
+  }
+
+  public @Nullable PsiFile getPsiFile() {
     return file;
   }
 
