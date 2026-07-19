@@ -15,6 +15,8 @@ import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
 import { semanticSearch, buildPattern } from "./operations/semantic"
 import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
+import { renameSymbol, prepareRename } from "./operations/rename"
+import { refactor } from "./operations/refactor"
 
 interface Output {
   success: boolean
@@ -260,6 +262,65 @@ async function main() {
         break
       }
 
+      case "rename":
+      case "rn": {
+        const inIdxRn = positional.indexOf("to")
+        const sym = positional.slice(1, inIdxRn >= 0 ? inIdxRn : positional.length).join(" ")
+        const newName = inIdxRn >= 0 ? positional.slice(inIdxRn + 1, inIdxRn + 2).join(" ") : ""
+        if (!newName) { printJson(fail(operation, "new name required", "Usage: xlsp rename <symbol> to <newName> in <file>")); return }
+        const pos = await resolveSymbolPosition(client, sym, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first")); return }
+        const results = await renameSymbol(client, pos, newName)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (ctxLines) await addContext(results, ctxLines)
+        printJson(ok(operation, results, sym, file ?? pos.file))
+        break
+      }
+
+      case "prepare-rename":
+      case "pr": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found", "Try xlsp symbols <query> first")); return }
+        const result = await prepareRename(client, pos)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        if (!result) { printJson(fail(operation, "no rename target at position", "The symbol at this position cannot be renamed")); return }
+        printJson({ success: true, operation, query: symbol, file: file ?? pos.file, count: 1, results: [result] })
+        break
+      }
+
+      case "refactor":
+      case "rf": {
+        const inIdxRf = positional.indexOf("in")
+        const refType = positional.slice(1, inIdxRf >= 0 ? inIdxRf : positional.length).join(" ")
+        if (!refType) { printJson(fail(operation, "refactor type required", "Usage: xlsp refactor <type> [args] in <file>\nTypes: extract-method [name], introduce-variable, inline")); return }
+        const refFile = inIdxRf >= 0 ? positional.slice(inIdxRf + 1).join(" ") : undefined
+        if (!refFile) { printJson(fail(operation, "file required", "Usage: xlsp refactor <type> [args] in <file>")); return }
+        const refArgs = refType.split(/\s+/)
+        const rtype = refArgs[0]
+        const name = refArgs.length > 1 ? refArgs.slice(1).join(" ") : undefined
+        if (!["extract-method", "introduce-variable", "inline"].includes(rtype)) {
+          printJson(fail(operation, `unknown refactor type: ${rtype}`, "Types: extract-method [name], introduce-variable, inline"))
+          return
+        }
+        const absFile = refFile.startsWith("/") ? refFile : `${wsRoot}/${refFile}`
+        const text = await Bun.file(absFile).text()
+        client.sendNotification("textDocument/didOpen", {
+          textDocument: { uri: `file://${absFile}`, languageId: "java", version: 1, text },
+        })
+        await client.drainNotifications(500)
+        const pos = await resolveSymbolPosition(client, symbol, refFile, wsRoot)
+        if (!pos) {
+          client.sendNotification("textDocument/didClose", { textDocument: { uri: `file://${absFile}` } })
+          printJson(fail(operation, "symbol not found"))
+          return
+        }
+        const result = await refactor(client, `file://${absFile}`, rtype, pos.line, pos.character, name)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        client.sendNotification("textDocument/didClose", { textDocument: { uri: `file://${absFile}` } })
+        printJson({ success: result.applied, operation, query: rtype, file: refFile, applied: result.applied, failureReason: result.failureReason })
+        break
+      }
+
       case "actions":
       case "act": {
         const results = await getCodeActions(client, file || symbol, wsRoot)
@@ -421,7 +482,7 @@ async function main() {
       }
 
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, calls, dataflow, inspect-list, semantic"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, rename, prepare-rename, refactor, calls, dataflow, inspect-list, semantic"))
     }
 
     client.sendNotification("shutdown", {})

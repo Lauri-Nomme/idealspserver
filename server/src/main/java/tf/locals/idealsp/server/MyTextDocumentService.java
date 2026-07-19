@@ -5,6 +5,7 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.CompletableFutures;
+import org.eclipse.lsp4j.jsonrpc.messages.Either3;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.eclipse.lsp4j.services.TextDocumentService;
 import org.jetbrains.annotations.NotNull;
@@ -16,6 +17,7 @@ import tf.locals.idealsp.server.formatting.FormattingCommand;
 import tf.locals.idealsp.server.formatting.OnTypeFormattingCommand;
 import tf.locals.idealsp.server.references.*;
 import tf.locals.idealsp.server.hover.HoverCommand;
+import tf.locals.idealsp.server.rename.PrepareRenameCommand;
 import tf.locals.idealsp.server.rename.RenameCommand;
 import tf.locals.idealsp.server.signature.SignatureHelpService;
 import tf.locals.idealsp.server.symbol.DocumentSymbolService;
@@ -319,6 +321,22 @@ public class MyTextDocumentService implements TextDocumentService {
         } catch (Exception e) {
             LOG.error("rename() failed", e);
             return MiscUtil.failed("rename", e.getMessage());
+        }
+    }
+
+    @Override
+    public CompletableFuture<Either3<Range, PrepareRenameResult, PrepareRenameDefaultBehavior>> prepareRename(@NotNull PrepareRenameParams params) {
+        try {
+            var project = session.getProject();
+            if (project == null) {
+                LOG.warn("prepareRename() called but project is not yet initialized");
+                return CompletableFuture.completedFuture(null);
+            }
+            return new PrepareRenameCommand(params.getPosition())
+                .runAsync(project, LspPath.fromLspUri(params.getTextDocument().getUri()));
+        } catch (Exception e) {
+            LOG.error("prepareRename() failed", e);
+            return MiscUtil.failed("prepareRename", e.getMessage());
         }
     }
 }

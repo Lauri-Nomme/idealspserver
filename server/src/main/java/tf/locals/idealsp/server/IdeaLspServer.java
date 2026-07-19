@@ -7,6 +7,8 @@ import tf.locals.idealsp.server.dataflow.DataFlowParams;
 import tf.locals.idealsp.server.inspections.InspectionInfo;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
 import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
+import tf.locals.idealsp.server.refactoring.RefactorParams;
+import tf.locals.idealsp.server.refactoring.RefactorResult;
 import tf.locals.idealsp.server.semantic.SemanticMatch;
 import tf.locals.idealsp.server.semantic.SemanticSearchParams;
 
@@ -29,4 +31,7 @@ public interface IdeaLspServer extends LanguageServer {
 
     @JsonRequest("textDocument/semanticSearch")
     CompletableFuture<List<SemanticMatch>> semanticSearch(SemanticSearchParams params);
+
+    @JsonRequest("idealsp/refactor")
+    CompletableFuture<RefactorResult> refactor(RefactorParams params);
 }
