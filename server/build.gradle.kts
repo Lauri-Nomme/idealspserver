@@ -63,15 +63,46 @@ intellijPlatform {
 
 tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    useJUnitPlatform()
     testLogging {
         events("passed", "skipped", "failed")
-        showStandardStreams = true
+        showStandardStreams = false
         showExceptions = true
         showStackTraces = true
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
     systemProperty("intellij.platform.test.output.mode", "console")
     systemProperty("idea.test.cyclic.buffer.size", "1048576")
+    outputs.upToDateWhen { false }
+    addTestListener(object : TestListener {
+        override fun beforeSuite(suite: TestDescriptor) {}
+        override fun afterSuite(suite: TestDescriptor, result: TestResult) {
+            if (suite.parent == null) {
+                val summary = mutableListOf<String>()
+                if (result.failedTestCount > 0) {
+                    summary.add("${result.failedTestCount} failed")
+                }
+                summary.add("${result.successfulTestCount} passed")
+                if (result.skippedTestCount > 0) {
+                    summary.add("${result.skippedTestCount} skipped")
+                }
+                println("\nTests: ${result.testCount} total, ${summary.joinToString(", ")} (${result.resultType})")
+            }
+        }
+        override fun beforeTest(test: TestDescriptor) {}
+        override fun afterTest(test: TestDescriptor, result: TestResult) {
+            if (result.resultType == TestResult.ResultType.FAILURE) {
+                val className = test.className?.substringAfterLast('.') ?: test.className ?: "Unknown"
+                println("  FAILED  $className.${test.name}")
+                result.exceptions.forEach { ex ->
+                    println("    ${ex.javaClass.name}: ${ex.message?.take(200)}")
+                    ex.stackTrace.take(5).forEach { frame ->
+                        println("      at $frame")
+                    }
+                }
+            }
+        }
+    })
 }
 
 tasks.runIde {
