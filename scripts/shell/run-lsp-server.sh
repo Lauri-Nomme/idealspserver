@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# IdeaLS LSP Server - Headless Runner
+# IdeaLSP Server - Headless Runner
 #
 # Usage:
 #   ./run-lsp-server.sh          # Run in production mode
@@ -91,7 +91,7 @@ done
 
 cd "$IDEA_DIR"
 
-echo -e "${GREEN}Starting IdeaLS LSP server on port $LSP_PORT...${NC}"
+echo -e "${GREEN}Starting IdeaLSP server on port $LSP_PORT...${NC}"
 echo "IDEA directory: $IDEA_DIR"
 echo "JDK: $IDEA_JDK"
 

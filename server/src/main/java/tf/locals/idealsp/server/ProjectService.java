@@ -206,7 +206,7 @@ public class ProjectService {
         ApplicationManager.getApplication().runWriteAction(() -> {
           try {
             var module = moduleManager.newModule(
-                Files.createTempDirectory("ideals-lsp-").resolve("lsp-module.iml"),
+                Files.createTempDirectory("idealsp-lsp-").resolve("lsp-module.iml"),
                 "JAVA_MODULE");
             var model = ModuleRootManager.getInstance(module).getModifiableModel();
             ContentEntry ce = model.addContentEntry(dir);

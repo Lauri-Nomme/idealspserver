@@ -12,7 +12,7 @@ on:
       - 'server/**'
 jobs:
   test-server:
-    name: Test IdeaLS server (Java)
+    name: Test IdeaLSP server (Java)
     strategy:
       matrix:
         os: [ ubuntu-latest ]
@@ -39,7 +39,7 @@ jobs:
           name: test-report-${{ matrix.os }}
           path: "server/build/reports/tests/test/**/*.*"
   test-comprehensive:
-    name: Test IdeaLS server (Python comprehensive)
+    name: Test IdeaLSP server (Python comprehensive)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

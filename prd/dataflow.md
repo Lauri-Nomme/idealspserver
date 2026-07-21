@@ -121,7 +121,7 @@ interface DataFlowLocation {
 ```
 
 ### 5.4 Implementation Architecture
-Following existing patterns in IdeaLS (same as control flow):
+Following existing patterns in IdeaLSP (same as control flow):
 ```
 Client Request
     ↓

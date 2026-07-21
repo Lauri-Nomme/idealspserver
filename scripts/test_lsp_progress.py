@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for IdeaLS LSP server with progress handling.
+Test script for IdeaLSP server with progress handling.
 """
 
 import json
@@ -74,7 +74,7 @@ def receive_response(sock, expected_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test IdeaLS LSP server")
+    parser = argparse.ArgumentParser(description="Test IdeaLSP server")
     parser.add_argument("--host", default="127.0.0.1", help="LSP server host")
     parser.add_argument("--port", type=int, default=8989, help="LSP server port")
     parser.add_argument("--project", default=PROJECT_PATH, help="Project path")

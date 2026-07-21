@@ -1,11 +1,11 @@
-# IdeaLS LSP Server - Headless Mode
+# IdeaLSP Server - Headless Mode
 
-Run the IdeaLS plugin as a Language Server Protocol (LSP) server without needing a full IDE GUI.
+Run the IdeaLSP plugin as a Language Server Protocol (LSP) server without needing a full IDE GUI.
 
 ## Prerequisites
 
 - IntelliJ IDEA Community 2026.1+ installed
-- IdeaLS plugin built and available
+- IdeaLSP plugin built and available
 
 ## Setup
 
@@ -48,13 +48,13 @@ The LSP server will start on `127.0.0.1:8989`.
 
 ```bash
 # Start service
-systemctl --user start ideals-lsp.service
+systemctl --user start idealsp.service
 
 # Check status
-systemctl --user status ideals-lsp.service
+systemctl --user status idealsp.service
 
 # View logs
-journalctl --user -u ideals-lsp.service -f
+journalctl --user -u idealsp.service -f
 ```
 
 ## Using the Script
@@ -87,6 +87,6 @@ LISTEN 0 50 [::ffff:127.0.0.1]:8989 *:* users:(("idea",pid=...,fd=...))
 ## Troubleshooting
 
 - If you get "Application cannot start in a headless mode", make sure `JAVA_TOOL_OPTIONS` includes `-Djava.awt.headless=true`
-- If the plugin isn't loaded, check the log at `~/.cache/JetBrains/IdeaIC2026.1/log/idea.log` for "Loaded custom plugins: IdeaLS"
+- If the plugin isn't loaded, check the log at `~/.cache/JetBrains/IdeaIC2026.1/log/idea.log` for "Loaded custom plugins: IdeaLSP"
 - Make sure the plugin is in `~/.local/share/JetBrains/IdeaIC2026.1/plugins/lib/` not the IDE's plugins folder
-- Check service logs: `journalctl --user -u ideals-lsp.service -n 50 --no-pager`
+- Check service logs: `journalctl --user -u idealsp.service -n 50 --no-pager`

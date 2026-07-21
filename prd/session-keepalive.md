@@ -279,7 +279,7 @@ A new xlsp operation to query server/project health. See [test report §5](./xls
 
 ## 9. Open Questions
 
-1. **Should the TTL be configurable?** — Yes, via system property `ideals.lsp.session.ttl.hours` with default 2.
+1. **Should the TTL be configurable?** — Yes, via system property `idealsp.lsp.session.ttl.hours` with default 2.
 2. **Should `shutdown` vs `exit` have different semantics?** — Currently both call `stop()`. We could make `shutdown` = release session and `exit` = release + don't reconnect. For simplicity, treat them identically.
 3. **What if a client sends `shutdown` but never disconnects?** — TCP connection timeout naturally cleans up. If needed, add heartbeat-based detection (future enhancement).
 4. **Should `idealsp/status` be in the standard LSP namespace or custom?** — Custom `idealsp/status` to avoid spec violation. Standard LSP has no status/health check method.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for IdeaLS LSP server - comprehensive version.
+Test script for IdeaLSP server - comprehensive version.
 
 Usage:
   python3 test_lsp_comprehensive.py              # Run all tests
