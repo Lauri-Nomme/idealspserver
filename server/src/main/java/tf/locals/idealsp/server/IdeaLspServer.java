@@ -12,6 +12,9 @@ import tf.locals.idealsp.server.refactoring.RefactorResult;
 import tf.locals.idealsp.server.semantic.SemanticMatch;
 import tf.locals.idealsp.server.semantic.SemanticSearchParams;
 
+import tf.locals.idealsp.server.projectstructure.ProjectStructureParams;
+import tf.locals.idealsp.server.projectstructure.ProjectStructureResult;
+
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -34,4 +37,7 @@ public interface IdeaLspServer extends LanguageServer {
 
     @JsonRequest("idealsp/refactor")
     CompletableFuture<RefactorResult> refactor(RefactorParams params);
+
+    @JsonRequest("idealsp/projectStructure")
+    CompletableFuture<ProjectStructureResult> projectStructure(ProjectStructureParams params);
 }
