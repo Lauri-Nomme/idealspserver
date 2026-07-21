@@ -246,7 +246,7 @@ def test_all():
         print(f"    (no diagnostics from didOpen)")
         record_result(2, "didOpen diagnostics", "PASS", "no diags")
 
-    _skip_main = not any(should_run(i) for i in range(1, 39))
+    _skip_main = not any(should_run(i) for i in range(1, 52))
     if not _skip_main:
         # Test document symbols
         resp = send_and_recv(
@@ -1388,9 +1388,9 @@ def test_all():
             print(f"38. ResolveCompletionItem: TIMEOUT - no response")
             record_result(38, "ResolveCompletionItem", "KNOWN", "TIMEOUT")
     else:
-        for _n in list(range(1, 43)):
+        for _n in list(range(1, 52)):
             skip_test(sock, _n, f"Test {_n}")
-        print("Selective mode: skipping tests 1-42")
+        print("Selective mode: skipping tests 1-51")
 
     # ============================================
     # Type Hierarchy Tests (prepareTypeHierarchy)
@@ -1623,18 +1623,127 @@ def test_all():
         if os.path.exists(refactor_test_file):
             os.remove(refactor_test_file)
 
-    # Test shutdown lifecycle
-    if should_run(46):
-        resp = send_and_recv(sock, "shutdown", {}, 46)
+    # ============================================
+    # Project Structure Tests — idealsp/projectStructure custom extension
+    # ============================================
+
+    # Test 47: projectStructure default scope = "all"
+    if should_run(47):
+        sock.settimeout(15)
+        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "all"}, 47)
+        sock.settimeout(30)
         if resp and "result" in resp:
-            print(f"46. Shutdown: OK")
-            record_result(46, "Shutdown", "PASS")
+            result = resp["result"]
+            ok = True
+            checks = []
+            if result.get("project") and result["project"].get("name"):
+                checks.append("project_name")
+            else:
+                ok = False
+            modules = result.get("modules", [])
+            if modules:
+                m = modules[0]
+                if m.get("name") and m.get("type") and m.get("contentRoots"):
+                    checks.append("modules")
+                else:
+                    ok = False
+            else:
+                ok = False
+            graph = result.get("dependencyGraph", {})
+            if "edges" in graph:
+                checks.append("dep_graph")
+            layout = result.get("sourceLayout", [])
+            if layout:
+                l = layout[0]
+                if l.get("module") and l.get("path") and l.get("type") and "packages" in l:
+                    checks.append("source_layout")
+            eps = result.get("entryPoints", [])
+            checks.append(f"entry_points({len(eps)})")
+            if ok:
+                print(f"47. ProjectStructure: OK - {', '.join(checks)}")
+                record_result(47, "ProjectStructure", "PASS", ", ".join(checks))
+            else:
+                print(f"47. ProjectStructure: FAILED - {', '.join(checks)}")
+                record_result(47, "ProjectStructure", "FAIL", ", ".join(checks))
+        else:
+            print(f"47. ProjectStructure: FAILED or timeout")
+            record_result(47, "ProjectStructure", "FAIL")
+    else:
+        skip_test(sock, 47, "ProjectStructure")
+
+    # Test 48: scope=modules
+    if should_run(48):
+        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "modules"}, 48)
+        if resp and "result" in resp:
+            r = resp["result"]
+            mods = r.get("modules", [])
+            layout = r.get("sourceLayout") or []
+            eps = r.get("entryPoints") or []
+            if mods and not layout and not eps:
+                print(f"48. ProjectStructure scope=modules: OK")
+                record_result(48, "ProjectStructure modules", "PASS")
+            elif mods:
+                print(f"48. ProjectStructure scope=modules: PARTIAL - got modules but layout/eps not empty")
+                record_result(48, "ProjectStructure modules", "KNOWN", "layout/eps not empty")
+            else:
+                print(f"48. ProjectStructure scope=modules: FAILED - no modules")
+                record_result(48, "ProjectStructure modules", "FAIL")
+        else:
+            print(f"48. ProjectStructure scope=modules: FAILED")
+            record_result(48, "ProjectStructure modules", "FAIL")
+    else:
+        skip_test(sock, 48, "ProjectStructure modules")
+
+    # Test 49: scope=source
+    if should_run(49):
+        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "source"}, 49)
+        if resp and "result" in resp:
+            r = resp["result"]
+            mods = r.get("modules", [])
+            layout = r.get("sourceLayout", [])
+            if layout and not mods:
+                print(f"49. ProjectStructure scope=source: OK - {len(layout)} source roots")
+                record_result(49, "ProjectStructure source", "PASS", f"{len(layout)} roots")
+            else:
+                print(f"49. ProjectStructure scope=source: PARTIAL - layout={len(layout)}, modules={len(mods)}")
+                record_result(49, "ProjectStructure source", "KNOWN")
+        else:
+            print(f"49. ProjectStructure scope=source: FAILED")
+            record_result(49, "ProjectStructure source", "FAIL")
+    else:
+        skip_test(sock, 49, "ProjectStructure source")
+
+    # Test 50: scope=entry
+    if should_run(50):
+        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "entry"}, 50)
+        if resp and "result" in resp:
+            r = resp["result"]
+            eps = r.get("entryPoints", [])
+            if eps:
+                ep_names = [ep.get("name", "?") for ep in eps[:5]]
+                print(f"50. ProjectStructure scope=entry: OK - {len(eps)} entry points: {ep_names}")
+                record_result(50, "ProjectStructure entry", "PASS", f"{len(eps)} points")
+            else:
+                print(f"50. ProjectStructure scope=entry: PARTIAL - no entry points found")
+                record_result(50, "ProjectStructure entry", "KNOWN", "no entry points")
+        else:
+            print(f"50. ProjectStructure scope=entry: FAILED")
+            record_result(50, "ProjectStructure entry", "FAIL")
+    else:
+        skip_test(sock, 50, "ProjectStructure entry")
+
+    # Test shutdown lifecycle
+    if should_run(51):
+        resp = send_and_recv(sock, "shutdown", {}, 51)
+        if resp and "result" in resp:
+            print(f"51. Shutdown: OK")
+            record_result(51, "Shutdown", "PASS")
             send_notification(sock, "exit", {})
         else:
-            print(f"46. Shutdown: FAILED")
-            record_result(46, "Shutdown", "FAIL")
+            print(f"51. Shutdown: FAILED")
+            record_result(51, "Shutdown", "FAIL")
     else:
-        skip_test(sock, 46, "Shutdown")
+        skip_test(sock, 51, "Shutdown")
 
     sock.close()
     print_summary()
