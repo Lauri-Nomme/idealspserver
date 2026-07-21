@@ -189,6 +189,7 @@ it.setHoverProvider(true);
        );
 
 it.setCallHierarchyProvider(true);
+it.setTypeHierarchyProvider(true);
 
        it.setExperimental(null);
 
