@@ -1,10 +1,10 @@
-# PRD: Rename & Refactoring for xlsp + IdeaLS
+# PRD: Rename & Refactoring for xlsp + IdeaLSP
 
 ## 1. Problem Statement
 
 The competitive analysis (Section 4.2) identified **refactoring** as the single biggest gap: xlsp scores 0/4 on refactoring capability, while competitors like MCP Steroid and Serena JB support rename, extract method, introduce variable, inline, safe delete, and move.
 
-The server (`IdeaLS`) already has a `RenameCommand` wired via `textDocument/rename`, but:
+The server (`IdeaLSP`) already has a `RenameCommand` wired via `textDocument/rename`, but:
 - **No `prepareRename`** — clients can't validate symbol before rename
 - **No xlsp CLI `rename` command** — the agent has no structured access to rename
 - **No refactoring commands** — extract method, introduce variable, inline don't exist

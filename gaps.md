@@ -1,7 +1,7 @@
-# Gap Analysis: IdeaLS Plugin Feature Coverage
+# Gap Analysis: IdeaLSP Plugin Feature Coverage
 
 ## Overview
-This document analyzes the gap between IDE features needed for effective software development, what the IdeaLS plugin currently provides, and what's possible according to LSP specs.
+This document analyzes the gap between IDE features needed for effective software development, what the IdeaLSP plugin currently provides, and what's possible according to LSP specs.
 
 ---
 
@@ -117,7 +117,7 @@ This changes O(hours) of manual searching into seconds of precise operations.
 
 ### AI Agent Tools - Status
 
-All LSP features are fully implemented and tested as of May 2026. The IdeaLS plugin provides comprehensive symbol-level navigation for AI agents.
+All LSP features are fully implemented and tested as of May 2026. The IdeaLSP plugin provides comprehensive symbol-level navigation for AI agents.
 
 | Priority | Tool | LSP Method | Status | AI Use Case |
 |----------|------|-----------|--------|------------|

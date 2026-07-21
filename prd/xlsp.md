@@ -26,7 +26,7 @@ Me: xlsp define Logger in LspServer.java → returns location directly
 
 ## Solution Overview
 
-Create an opencode plugin that exposes an `xlsp` tool with symbol-based operations. The tool communicates with the IdeaLS LSP server on port 8989 and provides a simplified interface optimized for agent consumption.
+Create an opencode plugin that exposes an `xlsp` tool with symbol-based operations. The tool communicates with the IdeaLSP server on port 8989 and provides a simplified interface optimized for agent consumption.
 
 ## Design Principles
 
@@ -300,7 +300,7 @@ Test the tool with these scenarios:
 1. **Symbol resolution works**: Can find symbol position without me providing coordinates
 2. **All operations return JSON**: No raw text or formatting that requires parsing
 3. **Graceful failures**: Empty results, not errors, when nothing found
-4. **Works with IdeaLS server**: Communicates correctly with LSP on port 8989
+4. **Works with IdeaLSP server**: Communicates correctly with LSP on port 8989
 5. **Consistent interface**: All operations follow same input/output pattern
 6. **Better than current**: Reduces token usage and operations compared to current workflow
 7. **Error recovery**: I can recover from failures without extra tool calls

@@ -1,8 +1,8 @@
-# PRD: Move & Safe Delete Refactoring for xlsp + IdeaLS
+# PRD: Move & Safe Delete Refactoring for xlsp + IdeaLSP
 
 ## 1. Problem Statement
 
-IdeaLS currently supports rename, extract method, introduce variable, and inline refactoring. The two remaining refactoring operations from the competitive analysis are **move** (move class/member between packages/files) and **safe delete** (delete a symbol after verifying it's unused). These complete the refactoring story and bring parity with MCP Steroid and Serena JB.
+IdeaLSP currently supports rename, extract method, introduce variable, and inline refactoring. The two remaining refactoring operations from the competitive analysis are **move** (move class/member between packages/files) and **safe delete** (delete a symbol after verifying it's unused). These complete the refactoring story and bring parity with MCP Steroid and Serena JB.
 
 ## 2. Goals
 

@@ -83,7 +83,7 @@ class DiagnosticsTask implements Runnable {
     }
     registry.registerQuickFixes(range, validDescriptors);
 
-    return new Diagnostic(range, info.getDescription(), diagnosticSeverity(info.getSeverity()), "ideals");
+    return new Diagnostic(range, info.getDescription(), diagnosticSeverity(info.getSeverity()), "idealsp");
   }
 
   @Override

@@ -1,4 +1,4 @@
-# IntelliJ Threading & Lock Model for IdeaLS
+# IntelliJ Threading & Lock Model for IdeaLSP
 
 ## Overview
 

@@ -1,4 +1,4 @@
-# PRD: Type Hierarchy (LSP 3.17) for xlsp + IdeaLS
+# PRD: Type Hierarchy (LSP 3.17) for xlsp + IdeaLSP
 
 ## 1. Problem Statement
 

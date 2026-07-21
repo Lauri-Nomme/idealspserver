@@ -408,7 +408,7 @@ Add the following test cases to `/vokk/home/lauri/dev/idealspserver/git/scripts/
 
 ### 5.1 Architecture Overview
 
-Following the existing patterns in IdeaLS:
+Following the existing patterns in IdeaLSP:
 
 ```
 Client Request

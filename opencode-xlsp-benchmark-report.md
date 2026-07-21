@@ -3,7 +3,7 @@
 **Generated:** 2026-07-18
 **Source:** `/vokk/home/lauri/.local/share/opencode/opencode.db` (682 MB, 334 sessions, 45,296 tool calls)
 **Target:** `/vokk/home/lauri/dev/idealspserver/git/tools/xlsp/cli.ts`
-**Runtime:** Bun, TCP LSP client → IdeaLS server (port 8989)
+**Runtime:** Bun, TCP LSP client → IdeaLSP server (port 8989)
 
 ---
 
@@ -358,7 +358,7 @@ The biggest latency factor for xlsp is LSP server initialization. Current observ
 
 ### 8.1 When xlsp Cannot Replace grep
 
-- **Non-Java files:** Python, Go, Rust, TypeScript, shell, config, markdown — xlsp requires the IdeaLS server (Java/IntelliJ platform).
+- **Non-Java files:** Python, Go, Rust, TypeScript, shell, config, markdown — xlsp requires the IdeaLSP server (Java/IntelliJ platform).
 - **No LSP server running:** xlsp needs the TCP server on port 8989. `systemctl --user status idealsp.service` must show it running.
 - **Infrequent file search:** Searching for files by name pattern (`**/*Test*.java`) is better served by glob.
 - **Diff/change-aware search:** xlsp searches the server's index, not git-dirty files. For uncommitted changes, grep may be necessary.

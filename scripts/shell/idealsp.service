@@ -1,5 +1,5 @@
 [Unit]
-Description=IdeaLSP LSP Server
+Description=IdeaLSP Server
 After=network.target
 
 [Service]

@@ -1,4 +1,4 @@
-# Competitive Analysis: xlsp / IdeaLS vs. Alternative Code Intelligence Solutions
+# Competitive Analysis: xlsp / IdeaLSP vs. Alternative Code Intelligence Solutions
 
 > A capability-by-capability comparison of xlsp against 10 competing solutions
 > across IntelliJ-based, Tree-sitter-based, and hybrid approaches.
@@ -32,11 +32,11 @@
 | 14 | **navigation-agent-mcp** | j0k3r-dev-rgl | Tree-sitter + custom | 6 | 8 languages |
 | 15 | **Rhizome** | basidiocarp | Tree-sitter + LSP | ~10 | Multi |
 
-### xlsp / IdeaLS (This Project)
+### xlsp / IdeaLSP (This Project)
 
 | Attribute | Value |
 |-----------|-------|
-| Architecture | Headless IntelliJ-based LSP server (IdeaLS) + CLI client (xlsp) |
+| Architecture | Headless IntelliJ-based LSP server (IdeaLSP) + CLI client (xlsp) |
 | Transport | Raw TCP → JSON-RPC 2.0 (LSP), no MCP |
 | Operations | 18 LSP commands |
 | Runtime | Bun (client) + JVM (server, IntelliJ IDEA platform) |
@@ -107,7 +107,7 @@
 | VCS integration | ❌ | ❌ | ◐ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HTTP route tracing | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ◐ | ✅ |
 
-\* xlsp supports any language the IdeaLS server can handle (Java, Kotlin, Python, Go, etc. via IntelliJ plugin)
+\* xlsp supports any language the IdeaLSP server can handle (Java, Kotlin, Python, Go, etc. via IntelliJ plugin)
 
 ### 2.5 Agent-Specific Features
 
@@ -245,7 +245,7 @@
 
 | Solution | Docker-friendly | No UI | systemd service | Startup time |
 |----------|----------------|-------|----------------|--------------|
-| **xlsp** (IdeaLS) | ◐ (JVM-heavy) | ✅ | ✅ | 10–30s |
+| **xlsp** (IdeaLSP) | ◐ (JVM-heavy) | ✅ | ✅ | 10–30s |
 | code-graph | ✅ (single binary) | ✅ | ❌ | 50–200ms |
 | codebase-memory | ✅ (single binary) | ✅ | ❌ | <1ms queries |
 | Seer | ✅ (single binary) | ✅ | ❌ | 50–200ms |
@@ -475,7 +475,7 @@ The xlsp source confirms each invocation does a full connect→init→shutdown c
 
 #### 7.3.3 Practical Note
 
-The IdeaLS server (IntelliJ backend) is the bottleneck, not CLI or MCP. The server takes 10–30 seconds to start regardless of transport. Once running, LSP initialize takes 100ms–8s depending on whether the project index is ready. Neither CLI nor MCP changes this.
+The IdeaLSP server (IntelliJ backend) is the bottleneck, not CLI or MCP. The server takes 10–30 seconds to start regardless of transport. Once running, LSP initialize takes 100ms–8s depending on whether the project index is ready. Neither CLI nor MCP changes this.
 
 ### 7.4 Precision & Reliability
 
@@ -590,7 +590,7 @@ The tradeoff is clear:
 
 **Build an MCP bridge, but don't replace the CLI.** The CLI-first approach has genuine advantages for token efficiency and simplicity. An MCP wrapper that:
 
-1. Maintains a persistent LSP connection to IdeaLS
+1. Maintains a persistent LSP connection to IdeaLSP
 2. Exposes 5–8 high-value tools (not all 18) to limit context bloat
 3. Reuses the same CLI code paths under the hood
 

@@ -1,4 +1,4 @@
-# Developing and Testing IdeaLS
+# Developing and Testing IdeaLSP
 
 ## Install Plugin After Code Changes
 
@@ -15,7 +15,7 @@ The install script:
 1. Compiles the server code with gradle
 2. Packages the JAR
 3. Copies to IntelliJ sandbox plugins directory
-4. Restarts the systemd service (`ideals-lsp.service`)
+4. Restarts the systemd service (`idealsp.service`)
 
 ### Manual Restart (if needed)
 

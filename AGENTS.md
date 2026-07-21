@@ -1,4 +1,4 @@
-# Agent Guidelines for IdeaLS
+# Agent Guidelines for IdeaLSP
 
 ## Key Files
 - `iteration.md` - Development and testing workflow

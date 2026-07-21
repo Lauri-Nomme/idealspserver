@@ -80,7 +80,7 @@ public class StartLspServerAction extends AnAction {
       var infoType = notificationTypeClass.getField("INFORMATION").get(null);
       
       var constructor = notificationClass.getConstructor(String.class, String.class, String.class, notificationTypeClass);
-      var notification = constructor.newInstance("IdeaLS", "IdeaLS", message, infoType);
+      var notification = constructor.newInstance("IdeaLSP", "IdeaLSP", message, infoType);
       
       var notifyMethod = notificationClass.getMethod("notify", Project.class);
       notifyMethod.invoke(notification, lastProject);
