@@ -383,11 +383,7 @@ it.setTypeHierarchyProvider(true);
         });
 
       // Wrap with timeout — SSR matcher can hang on large files
-      return searchFuture.orTimeout(10, TimeUnit.SECONDS)
-          .exceptionally(e -> {
-            LOG.warn("semanticSearch timed out or failed: " + e.getMessage());
-            return List.<SemanticMatch>of();
-          });
+      return searchFuture.orTimeout(10, TimeUnit.SECONDS);
     } catch (Exception e) {
       LOG.error("semanticSearch() failed", e);
       return MiscUtil.failed("semanticSearch", e.getMessage());

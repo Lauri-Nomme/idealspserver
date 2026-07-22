@@ -57,8 +57,6 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
                     LOG.warn("No element found at offset " + offset);
                     return;
                 }
-                // Resolve to significant parent: findElementAt returns leaf tokens (PsiIdentifier),
-                // but the slice framework needs PsiVariable, PsiMethod, etc.
                 PsiElement resolved = element;
                 while (resolved != null
                         && !(resolved instanceof com.intellij.psi.PsiVariable)
@@ -77,7 +75,6 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
 
                 SliceUsage rootUsage = LanguageSlicing.getProvider(element).createRootUsage(element, params);
                 SliceRootNode rootNode = new SliceRootNode(ctx.getProject(), new DuplicateMap(), rootUsage);
-                LOG.warn("DataFlowFrom: scope.fileCount=" + params.scope.getFileCount() + " scope.contains=" + params.scope.contains(element));
 
                 collectAllLeaves(rootNode.getChildren(), result, ctx.getPsiFile());
 
@@ -85,8 +82,6 @@ public class DataFlowFromCommand extends LspCommand<List<DataFlowLocation>> {
                     addDataFlowLocation(element, result, ctx.getPsiFile());
                 }
             });
-        } catch (Exception e) {
-            LOG.error("Data flow analysis failed", e);
         } finally {
             Disposer.dispose(disposable);
         }

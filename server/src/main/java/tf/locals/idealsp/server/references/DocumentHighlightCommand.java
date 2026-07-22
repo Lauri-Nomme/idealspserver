@@ -12,7 +12,6 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
@@ -62,18 +61,11 @@ public class DocumentHighlightCommand extends LspCommand<List<? extends Document
 
   @Override
   protected @NotNull List<? extends DocumentHighlight> execute(@NotNull ExecutorContext ctx) {
-    if (DumbService.isDumb(ctx.getProject())) {
-      return List.of();
-    }
+    MiscUtil.waitForSmartMode(ctx.getProject());
     var disposable = Disposer.newDisposable();
     try {
-      return EditorUtil.computeWithEditor(disposable, ctx.getPsiFile(), pos, editor -> {
-        try {
-          return findHighlights(ctx.getProject(), editor, ctx.getPsiFile());
-        } catch (IndexNotReadyException e) {
-          return List.of();
-        }
-      });
+      return EditorUtil.computeWithEditor(disposable, ctx.getPsiFile(), pos, editor ->
+          findHighlights(ctx.getProject(), editor, ctx.getPsiFile()));
     } finally {
       Disposer.dispose(disposable);
     }

@@ -119,8 +119,7 @@ class DiagnosticsTask implements Runnable {
       );
       client.publishDiagnostics(new PublishDiagnosticsParams(path.toLspUri(), diags));
     } catch (Exception e) {
-      LOG.warn("Error in diagnostics pipeline", e);
-      client.publishDiagnostics(new PublishDiagnosticsParams(path.toLspUri(), List.of()));
+      LOG.error("Error in diagnostics pipeline", e);
     } finally {
       client.notifyProgress(new ProgressParams(Either.forLeft(token), Either.forLeft(new WorkDoneProgressEnd())));
     }

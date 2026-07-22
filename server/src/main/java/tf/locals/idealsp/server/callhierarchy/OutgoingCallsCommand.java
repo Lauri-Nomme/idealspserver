@@ -25,61 +25,56 @@ public class OutgoingCallsCommand {
 
         LOG.warn("OutgoingCallsCommand.execute: item=" + item.getName() + " data=" + item.getData());
 
-        try {
-            PsiElement targetElement = IncomingCallsCommand.resolveElementFromItem(project, item);
-            LOG.warn("Resolved element: " + targetElement);
-            if (targetElement == null || !(targetElement instanceof PsiMethod)) {
-                LOG.warn("Target is not a method, returning empty");
-                return result;
+        PsiElement targetElement = IncomingCallsCommand.resolveElementFromItem(project, item);
+        LOG.warn("Resolved element: " + targetElement);
+        if (targetElement == null || !(targetElement instanceof PsiMethod)) {
+            LOG.warn("Target is not a method, returning empty");
+            return result;
+        }
+
+        PsiMethod targetMethod = (PsiMethod) targetElement;
+        Map<PsiMethod, List<PsiElement>> calleesMap = new HashMap<>();
+
+        targetMethod.accept(new JavaRecursiveElementVisitor() {
+            @Override
+            public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
+                super.visitMethodCallExpression(expression);
+                PsiMethod calledMethod = resolveMethodCall(expression);
+                if (calledMethod != null) {
+                    calleesMap.computeIfAbsent(calledMethod, k -> new ArrayList<>()).add(expression);
+                }
             }
 
-            PsiMethod targetMethod = (PsiMethod) targetElement;
-            Map<PsiMethod, List<PsiElement>> calleesMap = new HashMap<>();
-
-            targetMethod.accept(new JavaRecursiveElementVisitor() {
-                @Override
-                public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
-                    super.visitMethodCallExpression(expression);
-                    PsiMethod calledMethod = resolveMethodCall(expression);
-                    if (calledMethod != null) {
-                        calleesMap.computeIfAbsent(calledMethod, k -> new ArrayList<>()).add(expression);
-                    }
+            @Override
+            public void visitNewExpression(@NotNull PsiNewExpression expression) {
+                super.visitNewExpression(expression);
+                PsiMethod constructor = expression.resolveConstructor();
+                if (constructor != null) {
+                    calleesMap.computeIfAbsent(constructor, k -> new ArrayList<>()).add(expression);
                 }
+            }
+        });
 
-                @Override
-                public void visitNewExpression(@NotNull PsiNewExpression expression) {
-                    super.visitNewExpression(expression);
-                    PsiMethod constructor = expression.resolveConstructor();
-                    if (constructor != null) {
-                        calleesMap.computeIfAbsent(constructor, k -> new ArrayList<>()).add(expression);
-                    }
-                }
-            });
+        LOG.warn("Found " + calleesMap.size() + " callee methods");
 
-            LOG.warn("Found " + calleesMap.size() + " callee methods");
+        for (Map.Entry<PsiMethod, List<PsiElement>> entry : calleesMap.entrySet()) {
+            PsiMethod callee = entry.getKey();
+            List<PsiElement> callSites = entry.getValue();
 
-            for (Map.Entry<PsiMethod, List<PsiElement>> entry : calleesMap.entrySet()) {
-                PsiMethod callee = entry.getKey();
-                List<PsiElement> callSites = entry.getValue();
+            CallHierarchyItem calleeItem = PrepareCallHierarchyCommand.convertToCallHierarchyItem(
+                    callee, callee.getContainingFile());
+            if (calleeItem == null) continue;
 
-                CallHierarchyItem calleeItem = PrepareCallHierarchyCommand.convertToCallHierarchyItem(
-                        callee, callee.getContainingFile());
-                if (calleeItem == null) continue;
-
-                List<Range> fromRanges = new ArrayList<>();
-                for (PsiElement callSite : callSites) {
-                    Range range = MiscUtil.getPsiElementRange(MiscUtil.getDocument(callSite.getContainingFile()), callSite);
-                    if (range != null) fromRanges.add(range);
-                }
-
-                CallHierarchyOutgoingCall outgoingCall = new CallHierarchyOutgoingCall();
-                outgoingCall.setTo(calleeItem);
-                outgoingCall.setFromRanges(fromRanges);
-                result.add(outgoingCall);
+            List<Range> fromRanges = new ArrayList<>();
+            for (PsiElement callSite : callSites) {
+                Range range = MiscUtil.getPsiElementRange(MiscUtil.getDocument(callSite.getContainingFile()), callSite);
+                if (range != null) fromRanges.add(range);
             }
 
-        } catch (Exception e) {
-            LOG.error("Error in OutgoingCallsCommand", e);
+            CallHierarchyOutgoingCall outgoingCall = new CallHierarchyOutgoingCall();
+            outgoingCall.setTo(calleeItem);
+            outgoingCall.setFromRanges(fromRanges);
+            result.add(outgoingCall);
         }
 
         LOG.warn("Returning " + result.size() + " outgoing calls");

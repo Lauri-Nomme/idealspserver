@@ -91,8 +91,6 @@ public class DataFlowToCommand extends LspCommand<List<DataFlowLocation>> {
                     addDataFlowLocation(element, result, ctx.getPsiFile());
                 }
             });
-        } catch (Exception e) {
-            LOG.error("Data flow analysis failed", e);
         } finally {
             Disposer.dispose(disposable);
         }

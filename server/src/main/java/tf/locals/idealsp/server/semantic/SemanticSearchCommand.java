@@ -115,8 +115,6 @@ public class SemanticSearchCommand {
     } catch (IllegalArgumentException e) {
       LOG.error("Semantic search constraint error: " + e.getMessage());
       throw e;
-    } catch (Exception e) {
-      LOG.warn("Semantic search failed for pattern: " + pattern, e);
     }
 
     return result;
