@@ -35,73 +35,68 @@ public class IncomingCallsCommand {
 
         LOG.warn("IncomingCallsCommand.execute: item=" + item.getName() + " data=" + item.getData());
 
-        try {
-            PsiElement targetElement = resolveElementFromItem(project, item);
-            LOG.warn("Resolved element: " + targetElement);
-            if (targetElement == null || !(targetElement instanceof PsiMethod)) {
-                LOG.warn("Target is not a method, returning empty");
-                return result;
+        PsiElement targetElement = resolveElementFromItem(project, item);
+        LOG.warn("Resolved element: " + targetElement);
+        if (targetElement == null || !(targetElement instanceof PsiMethod)) {
+            LOG.warn("Target is not a method, returning empty");
+            return result;
+        }
+
+        PsiMethod targetMethod = (PsiMethod) targetElement;
+        Map<PsiMethod, List<PsiElement>> callersMap = new HashMap<>();
+
+        // Use global scope first (fast, uses word index)
+        var globalScope = GlobalSearchScope.projectScope(project);
+        var callerRefs = ReferencesSearch.search(targetMethod, globalScope, false).findAll();
+
+        // Fallback: use everything scope if project scope empty
+        if (callerRefs.isEmpty()) {
+            LOG.warn("Project scope empty, trying everything scope");
+            var everythingScope = GlobalSearchScope.everythingScope(project);
+            callerRefs = ReferencesSearch.search(targetMethod, everythingScope, false).findAll();
+            LOG.warn("Everything scope found " + callerRefs.size() + " references");
+        }
+
+        // Fallback: search across all managed (open) documents if no results
+        if (callerRefs.isEmpty()) {
+            LOG.warn("Global scope empty, trying managed-files fallback");
+            var managedScope = buildManagedFilesScope(project, targetMethod.getContainingFile());
+            callerRefs = ReferencesSearch.search(targetMethod, managedScope, false).findAll();
+            LOG.warn("Managed scope found " + callerRefs.size() + " references");
+        } else {
+            LOG.warn("Found " + callerRefs.size() + " references via global scope");
+        }
+
+        for (PsiReference reference : callerRefs) {
+            PsiElement referenceElement = reference.getElement();
+            if (referenceElement == null) continue;
+
+            PsiMethod callerMethod = findContainingMethod(referenceElement);
+            if (callerMethod != null) {
+                callersMap.computeIfAbsent(callerMethod, k -> new ArrayList<>()).add(referenceElement);
+            }
+        }
+
+        LOG.warn("Found " + callersMap.size() + " caller methods via ReferencesSearch");
+
+        for (Map.Entry<PsiMethod, List<PsiElement>> entry : callersMap.entrySet()) {
+            PsiMethod caller = entry.getKey();
+            List<PsiElement> callSites = entry.getValue();
+
+            CallHierarchyItem callerItem = PrepareCallHierarchyCommand.convertToCallHierarchyItem(
+                    caller, caller.getContainingFile());
+            if (callerItem == null) continue;
+
+            List<Range> fromRanges = new ArrayList<>();
+            for (PsiElement callSite : callSites) {
+                Range range = MiscUtil.getPsiElementRange(MiscUtil.getDocument(callSite.getContainingFile()), callSite);
+                if (range != null) fromRanges.add(range);
             }
 
-            PsiMethod targetMethod = (PsiMethod) targetElement;
-            Map<PsiMethod, List<PsiElement>> callersMap = new HashMap<>();
-
-            // Use global scope first (fast, uses word index)
-            var globalScope = GlobalSearchScope.projectScope(project);
-            var callerRefs = ReferencesSearch.search(targetMethod, globalScope, false).findAll();
-
-            // Fallback: use everything scope if project scope empty
-            if (callerRefs.isEmpty()) {
-                LOG.warn("Project scope empty, trying everything scope");
-                var everythingScope = GlobalSearchScope.everythingScope(project);
-                callerRefs = ReferencesSearch.search(targetMethod, everythingScope, false).findAll();
-                LOG.warn("Everything scope found " + callerRefs.size() + " references");
-            }
-
-            // Fallback: search across all managed (open) documents if no results
-            if (callerRefs.isEmpty()) {
-                LOG.warn("Global scope empty, trying managed-files fallback");
-                var managedScope = buildManagedFilesScope(project, targetMethod.getContainingFile());
-                callerRefs = ReferencesSearch.search(targetMethod, managedScope, false).findAll();
-                LOG.warn("Managed scope found " + callerRefs.size() + " references");
-            } else {
-                LOG.warn("Found " + callerRefs.size() + " references via global scope");
-            }
-
-            for (PsiReference reference : callerRefs) {
-                PsiElement referenceElement = reference.getElement();
-                if (referenceElement == null) continue;
-
-                PsiMethod callerMethod = findContainingMethod(referenceElement);
-                if (callerMethod != null) {
-                    callersMap.computeIfAbsent(callerMethod, k -> new ArrayList<>()).add(referenceElement);
-                }
-            }
-
-            LOG.warn("Found " + callersMap.size() + " caller methods via ReferencesSearch");
-
-            for (Map.Entry<PsiMethod, List<PsiElement>> entry : callersMap.entrySet()) {
-                PsiMethod caller = entry.getKey();
-                List<PsiElement> callSites = entry.getValue();
-
-                CallHierarchyItem callerItem = PrepareCallHierarchyCommand.convertToCallHierarchyItem(
-                        caller, caller.getContainingFile());
-                if (callerItem == null) continue;
-
-                List<Range> fromRanges = new ArrayList<>();
-                for (PsiElement callSite : callSites) {
-                    Range range = MiscUtil.getPsiElementRange(MiscUtil.getDocument(callSite.getContainingFile()), callSite);
-                    if (range != null) fromRanges.add(range);
-                }
-
-                CallHierarchyIncomingCall incomingCall = new CallHierarchyIncomingCall();
-                incomingCall.setFrom(callerItem);
-                incomingCall.setFromRanges(fromRanges);
-                result.add(incomingCall);
-            }
-
-        } catch (Exception e) {
-            LOG.error("Error in IncomingCallsCommand", e);
+            CallHierarchyIncomingCall incomingCall = new CallHierarchyIncomingCall();
+            incomingCall.setFrom(callerItem);
+            incomingCall.setFromRanges(fromRanges);
+            result.add(incomingCall);
         }
 
         LOG.warn("Returning " + result.size() + " incoming calls");

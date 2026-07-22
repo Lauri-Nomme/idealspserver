@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.psi.PsiElement;
@@ -16,6 +17,7 @@ import org.eclipse.lsp4j.Location;
 import org.eclipse.lsp4j.LocationLink;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
+import org.eclipse.lsp4j.jsonrpc.CancelChecker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
@@ -241,5 +243,20 @@ public class MiscUtil {
   public static <T> @NotNull CompletableFuture<T> failed(@NotNull String operation, @NotNull String detail) {
     return (CompletableFuture<T>) CompletableFuture.failedFuture(
         new RuntimeException("[" + operation + "] " + detail));
+  }
+
+  public static void waitForSmartMode(@NotNull Project project) {
+    waitForSmartMode(project, null);
+  }
+
+  public static void waitForSmartMode(@NotNull Project project, @Nullable CancelChecker cancelToken) {
+    for (int i = 0; i < 25; i++) {
+      if (cancelToken != null) cancelToken.checkCanceled();
+      if (!DumbService.isDumb(project)) return;
+      try { Thread.sleep(200); } catch (InterruptedException e) { break; }
+    }
+    if (DumbService.isDumb(project)) {
+      throw new RuntimeException("Server is not ready: IntelliJ is still indexing (dumb mode after 5s wait)");
+    }
   }
 }

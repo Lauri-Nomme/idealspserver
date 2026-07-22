@@ -60,9 +60,7 @@ final public class WorkspaceSymbolService {
   public @NotNull CompletableFuture<@NotNull Either<List<? extends SymbolInformation>, @Nullable List<? extends WorkspaceSymbol>>> runSearch(String pattern) {
     return CompletableFutures.computeAsync(AppExecutorUtil.getAppExecutorService(),
         cancelToken -> {
-          if (DumbService.isDumb(project)) {
-            return Either.forRight(null);
-          }
+          MiscUtil.waitForSmartMode(project, cancelToken);
           final var result = execute(pattern, cancelToken).stream()
               .map(WorkspaceSearchResult::symbol)
               .toList();

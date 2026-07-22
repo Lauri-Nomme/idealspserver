@@ -155,7 +155,7 @@ final public class CompletionService implements Disposable {
       return result;
     } catch (Exception e) {
       LOG.error("completion failed", e);
-      return List.of();
+      throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
     } finally {
       cancelChecker.checkCanceled();
     }

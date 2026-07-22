@@ -197,13 +197,14 @@ return t -> seen.add(keyExtractor.apply(t));
   public CompletableFuture<List<CodeAction>> getCodeActionsAsync(@NotNull LspPath path, @NotNull Range range) {
     LOG.warn("getCodeActionsAsync: " + path + " range=" + range);
     return CompletableFuture.supplyAsync(() -> {
+      MiscUtil.waitForSmartMode(project);
       List<CodeAction> result = new ArrayList<>();
       try {
         ApplicationManager.getApplication().invokeAndWait(() -> {
           result.addAll(collectCodeActions(path, range));
         });
       } catch (Exception e) {
-        LOG.warn("getCodeActionsAsync exception: " + e, e);
+        throw new RuntimeException("getCodeActionsAsync failed", e);
       }
       return result;
     }, com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService());
@@ -235,132 +236,123 @@ return t -> seen.add(keyExtractor.apply(t));
 
       final var oldCopy = ((PsiFile) psiFile.copy());
 
-      try {
-        ApplicationManager.getApplication().invokeAndWait(() -> {
-          final var editor = EditorUtil.createEditor(disposable, psiFile, actionData.getRange().getStart());
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        final var editor = EditorUtil.createEditor(disposable, psiFile, actionData.getRange().getStart());
 
-          final var quickFixes = diagnostics().getQuickFixes(path, actionData.getRange());
-          
-          Object actionInfo2;
+        final var quickFixes = diagnostics().getQuickFixes(path, actionData.getRange());
+        
+        Object actionInfo2;
+        try {
+          var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
+              com.intellij.openapi.editor.Editor.class, 
+              com.intellij.psi.PsiFile.class, 
+              boolean.class);
+          actionInfo2 = method.invoke(null, editor, psiFile, true);
+        } catch (Exception e) {
           try {
             var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
                 com.intellij.openapi.editor.Editor.class, 
-                com.intellij.psi.PsiFile.class, 
-                boolean.class);
-            actionInfo2 = method.invoke(null, editor, psiFile, true);
-          } catch (Exception e) {
-            try {
-              var method = ShowIntentionsPass.class.getMethod("getActionsToShow", 
-                  com.intellij.openapi.editor.Editor.class, 
-                  com.intellij.psi.PsiFile.class);
-              actionInfo2 = method.invoke(null, editor, psiFile);
-            } catch (Exception e2) {
-              actionInfo2 = null;
-            }
+                com.intellij.psi.PsiFile.class);
+            actionInfo2 = method.invoke(null, editor, psiFile);
+          } catch (Exception e2) {
+            actionInfo2 = null;
           }
+        }
 
-          if (actionInfo2 == null) {
+        if (actionInfo2 == null) {
+          return;
+        }
+
+        java.util.Collection<?> errorFixes = Collections.emptyList();
+        java.util.Collection<?> inspectionFixes = Collections.emptyList();
+        java.util.Collection<?> intentions = Collections.emptyList();
+        
+        try {
+          var errorFixesField = actionInfo2.getClass().getField("errorFixesToShow");
+          var inspectionFixesField = actionInfo2.getClass().getField("inspectionFixesToShow");
+          var intentionsField = actionInfo2.getClass().getField("intentionsToShow");
+          errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo2);
+          inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo2);
+          intentions = (java.util.Collection<?>) intentionsField.get(actionInfo2);
+        } catch (Exception ignored) {}
+
+        Stream.of(quickFixes, errorFixes, inspectionFixes, intentions)
+            .flatMap(Collection::stream)
+            .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
+
+        var title = codeAction.getTitle();
+        Object actionFound;
+        if (EXTRACT_METHOD_TITLE.equals(title) || INTRODUCE_VARIABLE_TITLE.equals(title) || INLINE_TITLE.equals(title)) {
+          actionFound = null;
+        } else {
+          actionFound = Stream.of(
+                  quickFixes,
+                  errorFixes,
+                  inspectionFixes,
+                  intentions)
+              .flatMap(Collection::stream)
+              .map(it -> (Object) it)
+              .map(obj -> {
+                try {
+                  return obj.getClass().getMethod("getAction").invoke(obj);
+                } catch (Exception e) {
+                  return obj;
+                }
+              })
+              .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
+              .findFirst()
+              .orElse(null);
+        }
+
+        if (actionFound == null) {
+          boolean[] handled = {false};
+          CommandProcessor.getInstance().executeCommand(project, () -> {
+            if (EXTRACT_METHOD_TITLE.equals(title)) {
+              String methodName = actionData.getMethodName();
+              WriteAction.run(() -> handled[0] = RefactoringHandler.applyExtractMethod(project, editor, psiFile, methodName));
+            } else if (INTRODUCE_VARIABLE_TITLE.equals(title)) {
+              WriteAction.run(() -> handled[0] = RefactoringHandler.applyIntroduceVariable(project, editor, psiFile));
+            } else if (INLINE_TITLE.equals(title)) {
+              WriteAction.run(() -> handled[0] = RefactoringHandler.applyInline(project, editor, psiFile));
+            }
+          }, title, null);
+          if (!handled[0]) {
+            LOG.warn("No action descriptor found: " + title);
             return;
           }
-
-          java.util.Collection<?> errorFixes = Collections.emptyList();
-          java.util.Collection<?> inspectionFixes = Collections.emptyList();
-          java.util.Collection<?> intentions = Collections.emptyList();
-          
-          try {
-            var errorFixesField = actionInfo2.getClass().getField("errorFixesToShow");
-            var inspectionFixesField = actionInfo2.getClass().getField("inspectionFixesToShow");
-            var intentionsField = actionInfo2.getClass().getField("intentionsToShow");
-            errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo2);
-            inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo2);
-            intentions = (java.util.Collection<?>) intentionsField.get(actionInfo2);
-          } catch (Exception ignored) {}
-
-          // Force-initialize lazy ModCommandActionWrapper descriptors (IntelliJ 2026.1)
-          Stream.of(quickFixes, errorFixes, inspectionFixes, intentions)
-              .flatMap(Collection::stream)
-              .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
-
-          var title = codeAction.getTitle();
-          Object actionFound;
-          if (EXTRACT_METHOD_TITLE.equals(title) || INTRODUCE_VARIABLE_TITLE.equals(title) || INLINE_TITLE.equals(title)) {
-            // Skip internal descriptor search — builtin refactoring actions have UI-dependent
-            // handlers that don't work in headless mode. Route directly to our headless path.
-            actionFound = null;
-          } else {
-            actionFound = Stream.of(
-                    quickFixes,
-                    errorFixes,
-                    inspectionFixes,
-                    intentions)
-                .flatMap(Collection::stream)
-                .map(it -> (Object) it)
-                .map(obj -> {
-                  try {
-                    return obj.getClass().getMethod("getAction").invoke(obj);
-                  } catch (Exception e) {
-                    return obj;
-                  }
-                })
-                .filter(it -> codeAction.getTitle().equals(tryGetText(it)))
-                .findFirst()
-                .orElse(null);
+          var psiDoc = PsiDocumentManager.getInstance(project).getDocument(psiFile);
+          if (psiDoc != null) {
+            PsiDocumentManager.getInstance(project).commitDocument(psiDoc);
           }
+        } else {
+          try {
+            var startInWriteActionMethod = actionFound.getClass().getMethod("startInWriteAction");
+            boolean startInWriteAction = (boolean) startInWriteActionMethod.invoke(actionFound);
+            
+            var invokeMethod = actionFound.getClass().getMethod("invoke", com.intellij.openapi.project.Project.class, com.intellij.openapi.editor.Editor.class, com.intellij.psi.PsiFile.class);
 
-          if (actionFound == null) {
-            // Try headless refactoring actions
-            boolean[] handled = {false};
             CommandProcessor.getInstance().executeCommand(project, () -> {
-              if (EXTRACT_METHOD_TITLE.equals(title)) {
-                String methodName = actionData.getMethodName();
-                WriteAction.run(() -> handled[0] = RefactoringHandler.applyExtractMethod(project, editor, psiFile, methodName));
-              } else if (INTRODUCE_VARIABLE_TITLE.equals(title)) {
-                WriteAction.run(() -> handled[0] = RefactoringHandler.applyIntroduceVariable(project, editor, psiFile));
-              } else if (INLINE_TITLE.equals(title)) {
-                WriteAction.run(() -> handled[0] = RefactoringHandler.applyInline(project, editor, psiFile));
-              }
-            }, title, null);
-            if (!handled[0]) {
-              LOG.warn("No action descriptor found: " + title);
-              return;
-            }
-            // Commit PSI changes to document so the WorkspaceEdit diff captures them
-            var psiDoc = PsiDocumentManager.getInstance(project).getDocument(psiFile);
-            if (psiDoc != null) {
-              PsiDocumentManager.getInstance(project).commitDocument(psiDoc);
-            }
-          } else {
-            try {
-              var startInWriteActionMethod = actionFound.getClass().getMethod("startInWriteAction");
-              boolean startInWriteAction = (boolean) startInWriteActionMethod.invoke(actionFound);
-              
-              var invokeMethod = actionFound.getClass().getMethod("invoke", com.intellij.openapi.project.Project.class, com.intellij.openapi.editor.Editor.class, com.intellij.psi.PsiFile.class);
-
-              CommandProcessor.getInstance().executeCommand(project, () -> {
-                if (startInWriteAction) {
-                  WriteAction.run(() -> {
-                    try {
-                      invokeMethod.invoke(actionFound, project, editor, psiFile);
-                    } catch (Exception ex) {
-                      LOG.warn("invoke error: " + ex);
-                    }
-                  });
-                } else {
+              if (startInWriteAction) {
+                WriteAction.run(() -> {
                   try {
                     invokeMethod.invoke(actionFound, project, editor, psiFile);
                   } catch (Exception ex) {
                     LOG.warn("invoke error: " + ex);
                   }
+                });
+              } else {
+                try {
+                  invokeMethod.invoke(actionFound, project, editor, psiFile);
+                } catch (Exception ex) {
+                  LOG.warn("invoke error: " + ex);
                 }
-              }, codeAction.getTitle(), null);
-            } catch (Exception e) {
-              LOG.warn("Failed to invoke action: " + e);
-            }
+              }
+            }, codeAction.getTitle(), null);
+          } catch (Exception e) {
+            LOG.warn("Failed to invoke action: " + e);
           }
-        });
-      } catch (Exception e) {
-        LOG.warn("applyCodeAction error: " + e);
-      }
+        }
+      });
 
       final var oldDoc = new Ref<Document>();
       final var newDoc = new Ref<Document>();
