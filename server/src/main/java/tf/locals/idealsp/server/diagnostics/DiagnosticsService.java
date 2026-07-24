@@ -39,7 +39,6 @@ final public class DiagnosticsService {
         LOG.error("document not found: " + path);
         return;
       }
-
       Optional.ofNullable(states.put(path, launchDiagnostic(path, psiFile, document)))
           .ifPresent(FileDiagnosticsState::halt);
     });

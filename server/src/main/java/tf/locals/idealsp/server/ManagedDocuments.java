@@ -53,36 +53,22 @@ final public class ManagedDocuments {
       return;
     }
 
-    ApplicationManager.getApplication().invokeAndWait(MiscUtil.asWriteAction(() -> {
+    var docVersion = Optional.of(textDocument.getVersion())
+        .filter(version -> version != 0)
+        .orElse(null);
+    docs.put(path, new VersionedTextDocumentIdentifier(uri, docVersion));
 
+    ApplicationManager.getApplication().invokeAndWait(MiscUtil.asWriteAction(() -> {
       MiscUtil.invokeWithPsiFileInReadAction(project, path, (psi) -> {
         var doc = MiscUtil.getDocument(psi);
         if (doc == null)
-          return; // todo handle
+          return;
 
         if (doc.isWritable()) {
-          // set IDEA's copy of the document to have the text with potential unsaved in-memory changes from the client
           doc.setText(normalizeText(textDocument.getText()));
           PsiDocumentManager.getInstance(project).commitDocument(doc);
         }
-
-/*  todo not sure if we need this
-        if (client != null) {
-          server?.let { registerIndexNotifier(project, client, it) }
-          val projectSdk = ProjectRootManager.getInstance(project).projectSdk
-          if (projectSdk == null) {
-            warnNoJdk(client)
-          }
-        }
-        true
-*/
       });
-
-      var docVersion = Optional.of(textDocument.getVersion())
-          .filter(version -> version != 0)
-          .orElse(null);
-      docs.put(path, new VersionedTextDocumentIdentifier(uri, docVersion));
-
     }));
   }
 
