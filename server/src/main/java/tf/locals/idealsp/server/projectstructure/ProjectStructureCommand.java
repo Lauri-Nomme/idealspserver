@@ -54,6 +54,10 @@ public class ProjectStructureCommand extends LspCommand<ProjectStructureResult> 
     result.setSourceLayout(PackageLister.list(project, effectiveScope));
     result.setEntryPoints(EntryPointFinder.find(project, effectiveScope));
 
+    if (result.getModules() == null || result.getModules().isEmpty()) {
+      result.setMessage("No modules found — verify that Gradle import completed successfully");
+    }
+
     return result;
   }
 }
