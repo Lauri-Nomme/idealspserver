@@ -167,6 +167,21 @@ def drain_notifications(sock, seconds=5):
             sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
 
 
+def resync_socket(sock, timeout=20):
+    """Drain any orphan responses from a previous TIMEOUT so the next
+    test doesn't pick up stale messages."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        remaining = max(0.5, deadline - time.time())
+        msg = recv_message(sock, timeout=remaining)
+        if msg is None:
+            break
+        if "id" in msg and "method" in msg:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": None}
+            content = json.dumps(reply)
+            sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+
+
 def parse_test_args():
     parser = argparse.ArgumentParser(description="Run LSP comprehensive tests")
     parser.add_argument("--test", "-t", type=int, help="Run a single test by number")
@@ -1394,7 +1409,9 @@ def test_all():
 
     # ============================================
     # Type Hierarchy Tests (prepareTypeHierarchy)
+    # Resync socket to drain any orphan responses from TIMEOUTs above
     # ============================================
+    resync_socket(sock, timeout=15)
     test_th_file = os.path.join(PROJECT_ROOT, "server/test-data/typehierarchy/TypeHierarchyTest.java")
     try:
         with open(test_th_file) as f:
@@ -1521,6 +1538,7 @@ def test_all():
 
     # ============================================
     # Refactoring tests — idealsp/refactor custom method
+    # Resync socket to drain any orphan responses from hierarchy TIMEOUTs
     # ============================================
 
     refactor_snippet = (
