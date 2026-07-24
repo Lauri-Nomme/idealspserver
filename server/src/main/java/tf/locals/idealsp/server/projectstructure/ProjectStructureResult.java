@@ -10,6 +10,7 @@ public class ProjectStructureResult {
   private DependencyGraph dependencyGraph;
   private List<EntryPoint> entryPoints;
   private List<SourceRootInfo> sourceLayout;
+  private String message;
 
   public ProjectStructureResult() {}
 
@@ -30,4 +31,7 @@ public class ProjectStructureResult {
 
   public List<SourceRootInfo> getSourceLayout() { return sourceLayout; }
   public void setSourceLayout(List<SourceRootInfo> sourceLayout) { this.sourceLayout = sourceLayout; }
+
+  public String getMessage() { return message; }
+  public void setMessage(String message) { this.message = message; }
 }
