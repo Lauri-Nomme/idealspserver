@@ -57,37 +57,42 @@ cd /vokk/home/lauri/dev/idealspserver/git
 python3 scripts/test_lsp_comprehensive.py
 ```
 
-### Test Output (April 2026)
+### Test Output (July 2026)
 
 ```
 Connected to LSP server
 
-1. Initialize: OK
-2. Opened test file, waiting for indexing...
-3. Document symbols: OK - Found 1 symbols
-4. Definition: OK - Found 1 location(s)
-5. References: OK - Found 4+ references
-6. Workspace symbols: OK - Found 43 symbols
-7. Completion: OK - Found 43 completions
-8. Hover: OK
-9. Type definition: OK - Found 1 location(s)
-10. Implementation: OK - Found 1 location(s)
-11. Document highlight: OK - Found 7 highlights
-12. Diagnostics: OK - Found 3 diagnostics
-13. Code Actions: OK
-14. Cross-file References: OK - Found 5+ references
-
-=== All tests completed ===
+ 1. Initialize: OK
+ 2. didOpen: 508 diagnostics
+ 3. Document symbols: OK - Found 1 symbols
+ 4. Definition: no results - known server limitation (TargetElementUtil)
+ 5. References: OK - Found 57 references
+ 6. Workspace symbols: OK - Found 100 symbols
+ 7. Completion: OK - Found 19 completions
+ 8. Hover: OK
+ 9. Type definition: no results - known server limitation (TargetElementUtil)
+10. Implementation: no results - known server limitation (TargetElementUtil)
+11. Document highlight: no results (edge case)
+12. Diagnostics: OK
+13. Code Actions (organize imports): OK
+14-22. Call hierarchy, cross-file references, dataflow: OK
+23-30. Inspections: OK (except 28-29 project-wide: TIMEOUT known)
+31-33. Semantic search: OK
+34. Signature Help: TIMEOUT (needs investigation)
+35. Formatting: TIMEOUT (needs investigation)
+36. Range Formatting: TIMEOUT (needs investigation)
+37. Rename: TIMEOUT (needs investigation)
+38. ResolveCompletionItem: TIMEOUT (needs investigation)
+39. Type hierarchy: FAILED (needs investigation)
+43-44. Refactoring: TIMEOUT (needs investigation)
 ```
 
 ### Test Timeout
 
-The test waits 10 seconds for indexing after opening the file:
+The test waits 20 seconds for indexing after opening the file:
 ```python
-time.sleep(10)
-```
+drain_notifications(sock, seconds=20)
 
-If tests fail unexpectedly, increase this delay.
 
 ## Quick Iteration Cycle
 
