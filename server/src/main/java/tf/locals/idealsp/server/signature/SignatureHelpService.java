@@ -34,6 +34,7 @@ import tf.locals.idealsp.server.util.LspProgressIndicator;
 import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 @Service(Service.Level.PROJECT)
 final public class SignatureHelpService implements Disposable {
@@ -124,7 +125,11 @@ final public class SignatureHelpService implements Disposable {
       if (listener instanceof MyParameterInfoListener myListener) {
         ParameterInfoControllerBase.Model model;
         try {
-          model = myListener.queue.take();
+          model = myListener.queue.poll(5, TimeUnit.SECONDS);
+          if (model == null) {
+            LOG.warn("Signature help: timeout waiting for parameter info model (5s)");
+            return ans;
+          }
         } catch (InterruptedException e) {
           throw MiscUtil.wrap(e);
         }
