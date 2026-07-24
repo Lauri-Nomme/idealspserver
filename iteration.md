@@ -65,26 +65,49 @@ Connected to LSP server
  1. Initialize: OK
  2. didOpen: 508 diagnostics
  3. Document symbols: OK - Found 1 symbols
- 4. Definition: no results - known server limitation (TargetElementUtil)
- 5. References: OK - Found 57 references
+ 4. Definition: no results (TargetElementUtil limitation)
+ 5. References: OK - Found 59 references
  6. Workspace symbols: OK - Found 100 symbols
  7. Completion: OK - Found 19 completions
  8. Hover: OK
- 9. Type definition: no results - known server limitation (TargetElementUtil)
-10. Implementation: no results - known server limitation (TargetElementUtil)
-11. Document highlight: no results (edge case)
-12. Diagnostics: OK
+ 9. Type definition: no results (TargetElementUtil limitation)
+10. Implementation: no results (TargetElementUtil limitation)
+11. Document highlight: no results (error=None)
+12. Diagnostics: OK - Found 3 diagnostics
 13. Code Actions (organize imports): OK
-14-22. Call hierarchy, cross-file references, dataflow: OK
-23-30. Inspections: OK (except 28-29 project-wide: TIMEOUT known)
-31-33. Semantic search: OK
-34. Signature Help: TIMEOUT (needs investigation)
-35. Formatting: TIMEOUT (needs investigation)
-36. Range Formatting: TIMEOUT (needs investigation)
-37. Rename: TIMEOUT (needs investigation)
-38. ResolveCompletionItem: TIMEOUT (needs investigation)
-39. Type hierarchy: FAILED (needs investigation)
-43-44. Refactoring: TIMEOUT (needs investigation)
+14. PrepareCallHierarchy on getName(): OK
+15. IncomingCalls to getName(): OK - Got ['printName', 'process']
+17. PrepareCallHierarchy on process(): OK
+18. OutgoingCalls from process(): OK
+19. IncomingCalls to process(): OK - Got ['main']
+20. PrepareCallHierarchy on field: OK (returns containing class)
+15b. Cross-file References: OK - Found 334 references
+21. DataFlowFrom on constructor param: OK - Found 2 locations
+22. DataFlowTo on field: OK - Found 1 location
+31. Semantic Search (fields): OK - Found 56 fields
+32. Semantic Search (Logger fields): OK - Found 1 Logger field
+33. Semantic Search invalid constraint: OK - Got error
+23. Inspection list (all): OK - Found 43 inspections
+24. Inspection list (search): OK - Found 4 inspections
+25. Inspection list (non-existent): OK - Empty
+26. Inspection runByName (unused): OK - Found 11 diagnostics
+27. Inspection runByName (non-existent): OK - Empty
+28. Inspection runByName (all files): TIMEOUT (project-wide is slow)
+29. Inspection runByName (null textDocument): TIMEOUT
+30. Code Actions: OK - No actions at this location
+34. Signature Help: TIMEOUT or not supported
+35. Formatting: TIMEOUT or not supported
+36. Range Formatting: TIMEOUT or not supported
+37. Rename: TIMEOUT or not supported
+37b. Cross-file Rename: TIMEOUT or not supported
+38. ResolveCompletionItem: TIMEOUT - no response
+39. PrepareTypeHierarchy: FAILED - no result
+41. PrepareTypeHierarchy: FAILED - no result
+43. Refactor extract-method: TIMEOUT
+44. Refactor introduce-variable: TIMEOUT
+45. Refactor inline: TIMEOUT
+47. ProjectStructure: FAILED
+48. ProjectStructure scope=modules: FAILED
 ```
 
 ### Test Timeout
