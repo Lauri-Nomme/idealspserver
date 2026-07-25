@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImportListener;
 import com.intellij.util.concurrency.AppExecutorUtil;
+import tf.locals.idealsp.server.util.MiscUtil;
 
 public class ProjectService {
   private final static Logger LOG = Logger.getInstance(ProjectService.class);
@@ -200,63 +201,59 @@ public class ProjectService {
         LOG.warn("Cannot find virtual file for project path: " + projectPath);
         return;
       }
-      LOG.info("Setting up source roots for workspace folder: " + projectPath);
+      LOG.warn("Setting up source roots for workspace folder: " + projectPath);
       final var dir = projectDir;
-      ApplicationManager.getApplication().invokeAndWait(() ->
-        ApplicationManager.getApplication().runWriteAction(() -> {
-          try {
-            var module = moduleManager.newModule(
-                Files.createTempDirectory("idealsp-lsp-").resolve("lsp-module.iml"),
-                "JAVA_MODULE");
-            var model = ModuleRootManager.getInstance(module).getModifiableModel();
-            ContentEntry ce = model.addContentEntry(dir);
-            ce.addSourceFolder(dir, false);
-            model.commit();
-            LOG.info("Added source root: " + dir.getUrl());
-          } catch (Exception e) {
-            LOG.warn("Failed to set up source roots for workspace: " + projectPath, e);
-          }
-        })
-      );
+      ApplicationManager.getApplication().invokeLater(MiscUtil.asWriteAction(() -> {
+        try {
+          var module = moduleManager.newModule(
+              Files.createTempDirectory("idealsp-lsp-").resolve("lsp-module.iml"),
+              "JAVA_MODULE");
+          var model = ModuleRootManager.getInstance(module).getModifiableModel();
+          ContentEntry ce = model.addContentEntry(dir);
+          ce.addSourceFolder(dir, false);
+          model.commit();
+          LOG.warn("Added source root: " + dir.getUrl());
+        } catch (Exception e) {
+          LOG.warn("Failed to set up source roots for workspace: " + projectPath, e);
+        }
+      }));
       return;
     }
 
     // Existing modules may have content roots but test-data dirs under them
     // may not be source folders. Add them so stub indexing covers test fixtures.
-    ApplicationManager.getApplication().invokeAndWait(() ->
-      ApplicationManager.getApplication().runWriteAction(() -> {
-        for (var module : modules) {
-          var rootManager = ModuleRootManager.getInstance(module);
-          for (ContentEntry entry : rootManager.getContentEntries()) {
-            var contentRootFile = entry.getFile();
-            if (contentRootFile == null) continue;
-            var testDataFile = contentRootFile.findChild("test-data");
-            if (testDataFile == null) continue;
-            boolean alreadySource = false;
-            for (var sf : entry.getSourceFolders()) {
-              if (testDataFile.equals(sf.getFile())) {
-                alreadySource = true;
-                break;
-              }
+    ApplicationManager.getApplication().invokeLater(MiscUtil.asWriteAction(() -> {
+      for (var module : modules) {
+        var rootManager = ModuleRootManager.getInstance(module);
+        for (ContentEntry entry : rootManager.getContentEntries()) {
+          var contentRootFile = entry.getFile();
+          if (contentRootFile == null) continue;
+          var testDataFile = contentRootFile.findChild("test-data");
+          if (testDataFile == null) continue;
+          boolean alreadySource = false;
+          for (var sf : entry.getSourceFolders()) {
+            if (testDataFile.equals(sf.getFile())) {
+              alreadySource = true;
+              break;
             }
-            if (!alreadySource) {
-              try {
-                var model = rootManager.getModifiableModel();
-                for (ContentEntry ce : model.getContentEntries()) {
-                  if (ce.getUrl().equals(entry.getUrl())) {
-                    ce.addSourceFolder(testDataFile, true);
-                    break;
-                  }
+          }
+          if (!alreadySource) {
+            try {
+              var model = rootManager.getModifiableModel();
+              for (ContentEntry ce : model.getContentEntries()) {
+                if (ce.getUrl().equals(entry.getUrl())) {
+                  ce.addSourceFolder(testDataFile, true);
+                  break;
                 }
-                model.commit();
-                LOG.warn("Added test-data source folder: " + testDataFile.getUrl());
-              } catch (Exception e) {
-                LOG.warn("Failed to add test-data source folder: " + testDataFile.getUrl(), e);
               }
+              model.commit();
+              LOG.warn("Added test-data source folder: " + testDataFile.getUrl());
+            } catch (Exception e) {
+              LOG.warn("Failed to add test-data source folder: " + testDataFile.getUrl(), e);
             }
           }
         }
-      })
-    );
+      }
+    }));
   }
 }

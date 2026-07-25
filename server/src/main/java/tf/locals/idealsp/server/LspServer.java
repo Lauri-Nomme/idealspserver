@@ -96,6 +96,11 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
         LOG.info("Opening project: " + projectRoot);
         project = ProjectSessionRegistry.getInstance().openOrClaimProject(projectRoot);
 
+        // Create LspContext immediately so that didOpen (which may arrive
+        // before waitForSmartMode returns) can access it.
+        assert client != null;
+        LspContext.createContext(project, client, params.getCapabilities());
+
         // Wait for dumb mode (indexing / Gradle import) to end so the EDT is
         // not saturated with background tasks when the first didOpen arrives.
         try {
@@ -105,8 +110,6 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
         }
         LOG.info("Project is now in smart mode (dumb=" + DumbService.isDumb(project) + ")");
 
-        assert client != null;
-        LspContext.createContext(project, client, params.getCapabilities());
         project.getMessageBus().connect().subscribe(DumbService.DUMB_MODE, this);
 
         LOG.info("LSP was initialized. Project: " + project);

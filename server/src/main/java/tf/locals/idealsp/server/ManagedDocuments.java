@@ -58,7 +58,7 @@ final public class ManagedDocuments {
         .orElse(null);
     docs.put(path, new VersionedTextDocumentIdentifier(uri, docVersion));
 
-    ApplicationManager.getApplication().invokeAndWait(MiscUtil.asWriteAction(() -> {
+    ApplicationManager.getApplication().invokeLater(MiscUtil.asWriteAction(() -> {
       MiscUtil.invokeWithPsiFileInReadAction(project, path, (psi) -> {
         var doc = MiscUtil.getDocument(psi);
         if (doc == null)

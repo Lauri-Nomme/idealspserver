@@ -71,17 +71,15 @@ public class MiscUtil {
       return null;
     }
 
-    return ApplicationManager.getApplication().runReadAction((Computable<T>) () -> {
-      final var psiFile = PsiManager.getInstance(project).findFile(virtualFile);
+    final var psiFile = ApplicationManager.getApplication().runReadAction((Computable<PsiFile>) () -> 
+        PsiManager.getInstance(project).findFile(virtualFile));
 
-      if (psiFile == null) {
-        LOG.info("Unable to get PSI for virtual file: " + virtualFile);
-        return null;
-      }
+    if (psiFile == null) {
+      LOG.info("Unable to get PSI for virtual file: " + virtualFile);
+      return null;
+    }
 
-      return block.apply(psiFile);
-    });
-
+    return ApplicationManager.getApplication().runReadAction((Computable<T>) () -> block.apply(psiFile));
   }
 
   public static void invokeWithPsiFileInReadAction(@NotNull Project project, @NotNull LspPath path, @NotNull Consumer<@NotNull PsiFile> block) {
