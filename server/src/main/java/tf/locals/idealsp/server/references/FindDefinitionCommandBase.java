@@ -1,6 +1,5 @@
 package tf.locals.idealsp.server.references;
 
-import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
@@ -57,6 +56,7 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
 
   @Override
   protected @NotNull Either<List<? extends Location>, @NotNull List<? extends LocationLink>> execute(@NotNull ExecutorContext ctx) {
+    MiscUtil.waitForSmartMode(ctx.getProject());
     PsiFile file = ctx.getPsiFile();
     var project = ctx.getProject();
     Document doc = MiscUtil.getDocument(file);

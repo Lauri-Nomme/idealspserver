@@ -2,6 +2,7 @@ package tf.locals.idealsp.server;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.CompletableFutures;
@@ -45,8 +46,10 @@ public class MyTextDocumentService implements TextDocumentService {
     final var path = LspPath.fromLspUri(textDocument.getUri());
 
     Metrics.run(() -> "didOpen: " + path, () -> {
-      var project = session.getProject();
-      if (project == null) {
+      Project project;
+      try {
+        project = session.getProject();
+      } catch (IllegalStateException e) {
         LOG.warn("didOpen called before project is initialized, skipping: " + path);
         return;
       }
