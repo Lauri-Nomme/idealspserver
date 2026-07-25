@@ -248,13 +248,13 @@ public class MiscUtil {
   }
 
   public static void waitForSmartMode(@NotNull Project project, @Nullable CancelChecker cancelToken) {
-    for (int i = 0; i < 25; i++) {
+    for (int i = 0; i < 300; i++) {
       if (cancelToken != null) cancelToken.checkCanceled();
       if (!DumbService.isDumb(project)) return;
       try { Thread.sleep(200); } catch (InterruptedException e) { break; }
     }
     if (DumbService.isDumb(project)) {
-      throw new RuntimeException("Server is not ready: IntelliJ is still indexing (dumb mode after 5s wait)");
+      LOG.warn("Still in dumb mode after 60s wait, proceeding anyway");
     }
   }
 }

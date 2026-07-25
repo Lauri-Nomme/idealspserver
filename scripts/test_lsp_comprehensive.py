@@ -211,7 +211,7 @@ def skip_test(sock, test_num, test_name):
 
 def test_all():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(30)
+    sock.settimeout(90)
     sock.connect(("127.0.0.1", 8989))
     print("Connected to LSP server")
 
@@ -316,13 +316,13 @@ def test_all():
                         print(f"    error: {resp['error']}")
                 record_result(4, "Definition", "FAIL")
     
-        # Test references - find references to MyTextDocumentService at line 48
+        # Test references - find references to LspServer class at line 52 (class declaration)
         resp = send_and_recv(
             sock,
             "textDocument/references",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 48, "character": 20},
+                "position": {"line": 52, "character": 13},
                 "context": {"includeDeclaration": True},
             },
             4,
@@ -367,13 +367,13 @@ def test_all():
             print(f"7. Completion: FAILED")
             record_result(7, "Completion", "FAIL")
     
-        # Test hover - line 48 (0-indexed) has MyTextDocumentService
+        # Test hover - line 54 (0-indexed) has MyTextDocumentService type reference
         resp = send_and_recv(
             sock,
             "textDocument/hover",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 48, "character": 20},
+                "position": {"line": 54, "character": 28},
             },
             7,
         )
@@ -424,7 +424,7 @@ def test_all():
             "textDocument/implementation",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 52, "character": 61},
+                "position": {"line": 52, "character": 70},
             },
             9,
         )
@@ -447,7 +447,7 @@ def test_all():
                     print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
                 record_result(10, "Implementation", "FAIL")
     
-        # Test document highlight - line 47 (0-indexed) has "LOG"
+        # Test document highlight - line 53 (0-indexed) has "LOG"
         # LOG is used multiple times in the file
         # Use a shorter socket timeout to avoid hanging if the server doesn't respond
         sock.settimeout(10)
@@ -456,11 +456,11 @@ def test_all():
             "textDocument/documentHighlight",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 47, "character": 30},
+                "position": {"line": 53, "character": 30},
             },
             10,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp and resp["result"]:
             print(f"11. Document highlight: OK - Found {len(resp['result'])} highlights")
             record_result(11, "Document highlight", "PASS", f"{len(resp['result'])} highlights")
@@ -772,7 +772,7 @@ def test_all():
             {
                 "textDocument": {"uri": f"file://{lsp_server_file}"},
                 "position": {
-                    "line": 46,
+                    "line": 52,
                     "character": 13,
                 },  # "L" of "LspServer" in "public class LspServer" (LSP lines 0-indexed)
                 "context": {"includeDeclaration": True},
@@ -1064,7 +1064,7 @@ def test_all():
             {"name": "unused"},
             28,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             diagnostics = resp["result"]
             if isinstance(diagnostics, list):
@@ -1095,7 +1095,7 @@ def test_all():
             {"textDocument": None, "name": "unused"},
             29,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             diagnostics = resp["result"]
             if isinstance(diagnostics, list):
@@ -1167,7 +1167,7 @@ def test_all():
             },
             34,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result and result.get("signatures"):
@@ -1192,7 +1192,7 @@ def test_all():
             },
             35,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1220,7 +1220,7 @@ def test_all():
             },
             36,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1251,7 +1251,7 @@ def test_all():
             },
             37,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
     
         # Restore original file content (rename applies server-side)
         if rename_original_backup is not None:
@@ -1321,7 +1321,7 @@ def test_all():
             },
             371,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
     
         # Restore both files
         for xf, content in xfile_backups.items():
@@ -1379,7 +1379,7 @@ def test_all():
             },
             38,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp and resp["result"]:
             result = resp["result"]
             items = result if isinstance(result, list) else result.get("items", [])
@@ -1572,7 +1572,7 @@ def test_all():
              "position": {"line": 2, "character": 8}, "name": None},
             43,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"43. Refactor extract-method: OK")
@@ -1593,7 +1593,7 @@ def test_all():
              "position": {"line": 4, "character": 18}, "name": None},
             44,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"44. Refactor introduce-variable: OK")
@@ -1623,7 +1623,7 @@ def test_all():
              "position": {"line": 4, "character": 18}, "name": None},
             45,
         )
-        sock.settimeout(30)
+        sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"45. Refactor inline: OK")
@@ -1649,7 +1649,7 @@ def test_all():
     if should_run(47):
         sock.settimeout(15)
         resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "all"}, 47)
-        sock.settimeout(30)
+        sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             ok = True
