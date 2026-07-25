@@ -61,7 +61,7 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
   private MyLanguageClient client = null;
 
   @Nullable
-  private Project project = null;
+  private volatile Project project = null;
 
   @Nullable
   private volatile LspPath workspaceRoot = null;
