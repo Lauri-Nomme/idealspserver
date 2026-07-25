@@ -250,7 +250,31 @@ def test_all():
         },
     )
     print("2. Opened test file, waiting for indexing and source root stabilization...")
-    drain_notifications(sock, seconds=20)
+    # Wait for idea/indexFinished notification (or timeout after 120s)
+    index_ready = False
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        msg = recv_message(sock, timeout=min(10, deadline - time.time()))
+        if msg is None:
+            continue
+        if msg.get("method") == "textDocument/publishDiagnostics":
+            diagnostics_result["data"] = msg.get("params", {})
+        if msg.get("method") == "idea/indexFinished":
+            print("    Received idea/indexFinished notification")
+            index_ready = True
+            break
+        if msg.get("method") == "idea/indexStarted":
+            print("    Received idea/indexStarted notification, waiting for finish...")
+            continue
+        # Respond to server-to-client requests
+        if "id" in msg and "method" in msg:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": None}
+            content = json.dumps(reply)
+            sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+    if not index_ready:
+        print("    WARNING: indexing did not complete within 120s, proceeding anyway")
+    # Drain any remaining notifications
+    drain_notifications(sock, seconds=5)
 
     # Check if didOpen already produced diagnostics
     if diagnostics_result.get("data"):
