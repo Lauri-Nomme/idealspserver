@@ -64,6 +64,9 @@ public class LspServerStarter implements ApplicationStarter {
   @SuppressWarnings("UnstableApiUsage")
   @Override
   public void main(@NotNull List<String> args) {
+    // Disable IntelliJ's broken SDK auto-fix that can hang the EDT
+    // when child processes inherit JAVA_TOOL_OPTIONS that conflict
+    System.setProperty("intellij.unknown.sdk.fix.enabled", "false");
     try {
       int exitCode;
       try {

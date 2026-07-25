@@ -56,8 +56,15 @@ public abstract class LspCommand<R> {
 
   private @Nullable R getResult(@NotNull Function<@Nullable CancelChecker, R> action,
                                 @Nullable CancelChecker cancelToken) {
-    AtomicReference<R> ref = new AtomicReference<>();
-    ApplicationManager.getApplication().invokeAndWait(() -> ref.set(action.apply(cancelToken)));
-    return ref.get();
+    final var result = new AtomicReference<R>(null);
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      try {
+        result.set(action.apply(cancelToken));
+      } catch (Throwable e) {
+        LOG.warn("Command execution failed", e);
+        throw e;
+      }
+    });
+    return result.get();
   }
 }

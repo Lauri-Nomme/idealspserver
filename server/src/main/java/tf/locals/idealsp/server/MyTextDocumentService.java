@@ -45,12 +45,17 @@ public class MyTextDocumentService implements TextDocumentService {
     final var path = LspPath.fromLspUri(textDocument.getUri());
 
     Metrics.run(() -> "didOpen: " + path, () -> {
+      var project = session.getProject();
+      if (project == null) {
+        LOG.warn("didOpen called before project is initialized, skipping: " + path);
+        return;
+      }
       documents().startManaging(textDocument);
       diagnostics().launchDiagnostics(path);
 
-      if (DumbService.isDumb(session.getProject())) {
+      if (DumbService.isDumb(project)) {
         LOG.debug("Sending indexing started: " + path);
-        LspContext.getContext(session.getProject()).getClient().notifyIndexStarted();
+        LspContext.getContext(project).getClient().notifyIndexStarted();
       }
   /*  todo
         val projectSdk = ProjectRootManager.getInstance(project).projectSdk
@@ -66,6 +71,11 @@ public class MyTextDocumentService implements TextDocumentService {
     final var path = LspPath.fromLspUri(params.getTextDocument().getUri());
 
     Metrics.run(() -> "didChange: " + path, () -> {
+      var project = session.getProject();
+      if (project == null) {
+        LOG.warn("didChange called before project is initialized, skipping: " + path);
+        return;
+      }
       documents().updateDocument(params);
       diagnostics().launchDiagnostics(path);
     });
