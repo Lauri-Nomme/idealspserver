@@ -26,16 +26,22 @@ public class FindDefinitionCommand extends FindDefinitionCommandBase {
 
   @Override
   protected @NotNull Stream<PsiElement> findDefinitions(@NotNull Editor editor, int offset) {
-    final var reference = TargetElementUtil.findReference(editor, offset);
-    final var flags = TargetElementUtil.getInstance().getDefinitionSearchFlags();
-    final var targetElement = TargetElementUtil.getInstance().findTargetElement(editor, flags, offset);
-    if (targetElement != null) return Stream.of(targetElement);
-    if (reference != null) {
-      var candidates = TargetElementUtil.getInstance().getTargetCandidates(reference);
-      if (!candidates.isEmpty()) return candidates.stream();
+    // TargetElementUtil requires the index (throws IndexNotReadyException in dumb mode).
+    // Try it first, but catch the exception and fall through to PSI-only resolution.
+    try {
+      final var reference = TargetElementUtil.findReference(editor, offset);
+      final var flags = TargetElementUtil.getInstance().getDefinitionSearchFlags();
+      final var targetElement = TargetElementUtil.getInstance().findTargetElement(editor, flags, offset);
+      if (targetElement != null) return Stream.of(targetElement);
+      if (reference != null) {
+        var candidates = TargetElementUtil.getInstance().getTargetCandidates(reference);
+        if (!candidates.isEmpty()) return candidates.stream();
+      }
+    } catch (com.intellij.openapi.project.IndexNotReadyException e) {
+      LOG.warn("TargetElementUtil failed in dumb mode, falling back to PSI resolution");
     }
 
-    // TargetElementUtil failed (e.g., no DataContext in headless mode).
+    // TargetElementUtil failed (e.g., no DataContext in headless mode, or dumb mode).
     // Fall back to direct PSI resolution.
     Project project = editor.getProject();
     if (project == null) return Stream.empty();
@@ -57,56 +63,61 @@ public class FindDefinitionCommand extends FindDefinitionCommandBase {
     PsiElement current = element;
     boolean sawReference = false;
     for (int i = 0; i < 20 && current != null; i++) {
-      if (current instanceof PsiJavaCodeReferenceElement ref
-          && ref.getParent() instanceof PsiNewExpression newExpr) {
-        PsiMethod ctor = newExpr.resolveConstructor();
-        if (ctor != null) return Stream.of(ctor);
-      }
-      if (current instanceof PsiPolyVariantReference pvr) {
-        sawReference = true;
-        ResolveResult[] results = pvr.multiResolve(false);
-        if (results.length > 0) {
-          LOG.warn("resolveDefinitions: multiResolve found " + results.length + " results");
-          return Stream.of(results).map(ResolveResult::getElement).filter(Objects::nonNull);
+      try {
+        if (current instanceof PsiJavaCodeReferenceElement ref
+            && ref.getParent() instanceof PsiNewExpression newExpr) {
+          PsiMethod ctor = newExpr.resolveConstructor();
+          if (ctor != null) return Stream.of(ctor);
         }
-        // multiResolve failed, try single resolve
-        if (current instanceof PsiReference pr) {
+        if (current instanceof PsiPolyVariantReference pvr) {
+          sawReference = true;
+          ResolveResult[] results = pvr.multiResolve(false);
+          if (results.length > 0) {
+            LOG.warn("resolveDefinitions: multiResolve found " + results.length + " results");
+            return Stream.of(results).map(ResolveResult::getElement).filter(Objects::nonNull);
+          }
+          // multiResolve failed, try single resolve
+          if (current instanceof PsiReference pr) {
+            PsiElement resolved = pr.resolve();
+            if (resolved != null) {
+              LOG.warn("resolveDefinitions: resolve() found " + resolved.getClass().getSimpleName());
+              return Stream.of(resolved);
+            }
+          }
+          // Try JavaPsiFacade fallback for class references
+          if (current instanceof PsiJavaCodeReferenceElement codeRef) {
+            PsiElement facadeResult = resolveViaFacade(codeRef, file);
+            if (facadeResult != null) return Stream.of(facadeResult);
+          }
+        } else if (current instanceof PsiReference pr) {
+          sawReference = true;
           PsiElement resolved = pr.resolve();
           if (resolved != null) {
             LOG.warn("resolveDefinitions: resolve() found " + resolved.getClass().getSimpleName());
             return Stream.of(resolved);
           }
-        }
-        // Try JavaPsiFacade fallback for class references
-        if (current instanceof PsiJavaCodeReferenceElement codeRef) {
-          PsiElement facadeResult = resolveViaFacade(codeRef, file);
-          if (facadeResult != null) return Stream.of(facadeResult);
-        }
-      } else if (current instanceof PsiReference pr) {
-        sawReference = true;
-        PsiElement resolved = pr.resolve();
-        if (resolved != null) {
-          LOG.warn("resolveDefinitions: resolve() found " + resolved.getClass().getSimpleName());
-          return Stream.of(resolved);
-        }
-      } else {
-        PsiReference ref = current.getReference();
-        if (ref != null) {
-          sawReference = true;
-          if (ref instanceof PsiPolyVariantReference pvr) {
-            ResolveResult[] results = pvr.multiResolve(false);
-            if (results.length > 0) {
-              LOG.warn("resolveDefinitions: getReference().multiResolve found " + results.length + " results");
-              return Stream.of(results).map(ResolveResult::getElement).filter(Objects::nonNull);
-            }
-          } else {
-            PsiElement resolved = ref.resolve();
-            if (resolved != null) {
-              LOG.warn("resolveDefinitions: getReference().resolve() found " + resolved.getClass().getSimpleName());
-              return Stream.of(resolved);
+        } else {
+          PsiReference ref = current.getReference();
+          if (ref != null) {
+            sawReference = true;
+            if (ref instanceof PsiPolyVariantReference pvr) {
+              ResolveResult[] results = pvr.multiResolve(false);
+              if (results.length > 0) {
+                LOG.warn("resolveDefinitions: getReference().multiResolve found " + results.length + " results");
+                return Stream.of(results).map(ResolveResult::getElement).filter(Objects::nonNull);
+              }
+            } else {
+              PsiElement resolved = ref.resolve();
+              if (resolved != null) {
+                LOG.warn("resolveDefinitions: getReference().resolve() found " + resolved.getClass().getSimpleName());
+                return Stream.of(resolved);
+              }
             }
           }
         }
+      } catch (com.intellij.openapi.project.IndexNotReadyException e) {
+        LOG.warn("resolveDefinitions: IndexNotReadyException in dumb mode, skipping reference resolution");
+        sawReference = true;
       }
       // Only return the current element if it's a declaration AND we haven't seen a reference
       // (if we saw a reference that didn't resolve, returning the containing declaration is wrong)
