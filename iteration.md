@@ -1,5 +1,11 @@
 # Developing and Testing IdeaLSP
 
+## Current Status (Jul 2026)
+- Definition, TypeDefinition, Implementation commands rewritten to use PSI tree walking instead of `TargetElementUtil`. All confirmed returning results.
+- Test positions in `test_lsp_comprehensive.py` updated for LspServer.java (tests 4, 9, 10 use lines 54, 54, 52)
+- `project` field made `volatile` in LspServer.java to fix race between `supplyAsync` init thread and LSP message thread
+- `didOpen` null guard uses try-catch (since `getProject()` throws, never returns null)
+
 ## Install Plugin After Code Changes
 
 ### Quick Rebuild and Install
