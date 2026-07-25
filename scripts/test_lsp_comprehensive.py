@@ -283,13 +283,13 @@ def test_all():
             print(f"3. Document symbols: FAILED - {resp}")
             record_result(3, "Document symbols", "FAIL")
     
-        # Test definition - line 48 (0-indexed) has "MyTextDocumentService" reference
+        # Test definition - line 54 (0-indexed) has "MyTextDocumentService" type reference
         resp = send_and_recv(
             sock,
             "textDocument/definition",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 48, "character": 20},
+                "position": {"line": 54, "character": 28},
             },
             3,
         )
@@ -306,8 +306,8 @@ def test_all():
                 record_result(4, "Definition", "PASS")
         else:
             if resp and "result" in resp and not resp["result"]:
-                print(f"4. Definition: no results - known server limitation (TargetElementUtil)")
-                record_result(4, "Definition", "KNOWN", "returns [] - TargetElementUtil limitation")
+                print(f"4. Definition: no results")
+                record_result(4, "Definition", "FAIL", "returns []")
             else:
                 print(f"4. Definition: FAILED or no result")
                 if resp:
@@ -384,14 +384,14 @@ def test_all():
             print(f"8. Hover: not supported or failed")
             record_result(8, "Hover", "FAIL")
     
-        # Test type definition - line 48 (0-indexed) has "myTextDocumentService" variable
+        # Test type definition - line 54 (0-indexed) has "myTextDocumentService" variable
         # Type definition should navigate to MyTextDocumentService class
         resp = send_and_recv(
             sock,
             "textDocument/typeDefinition",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 48, "character": 40},
+                "position": {"line": 54, "character": 44},
             },
             8,
         )
@@ -408,8 +408,8 @@ def test_all():
                 record_result(9, "Type definition", "PASS")
         else:
             if resp and "result" in resp and not resp["result"]:
-                print(f"9. Type definition: no results - known server limitation (TargetElementUtil)")
-                record_result(9, "Type definition", "KNOWN", "returns [] - TargetElementUtil limitation")
+                print(f"9. Type definition: no results")
+                record_result(9, "Type definition", "FAIL", "returns []")
             else:
                 err = resp.get("error") if resp else None
                 print(f"9. Type definition: FAILED (error={err})")
@@ -417,14 +417,14 @@ def test_all():
                     print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
                 record_result(9, "Type definition", "FAIL")
     
-        # Test implementation - line 46 (0-indexed) has LspSession interface
+        # Test implementation - line 52 (0-indexed) has LspSession interface reference
         # Should find implementing classes
         resp = send_and_recv(
             sock,
             "textDocument/implementation",
             {
                 "textDocument": {"uri": f"file://{test_file}"},
-                "position": {"line": 46, "character": 73},
+                "position": {"line": 52, "character": 61},
             },
             9,
         )
@@ -438,8 +438,8 @@ def test_all():
                 record_result(10, "Implementation", "PASS")
         else:
             if resp and "result" in resp and not resp["result"]:
-                print(f"10. Implementation: no results - known server limitation (TargetElementUtil)")
-                record_result(10, "Implementation", "KNOWN", "returns [] - TargetElementUtil limitation")
+                print(f"10. Implementation: no results")
+                record_result(10, "Implementation", "FAIL", "returns []")
             else:
                 err = resp.get("error") if resp else None
                 print(f"10. Implementation: FAILED (error={err})")
