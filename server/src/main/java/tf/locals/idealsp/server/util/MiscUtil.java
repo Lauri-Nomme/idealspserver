@@ -248,12 +248,20 @@ public class MiscUtil {
   }
 
   public static void waitForSmartMode(@NotNull Project project, @Nullable CancelChecker cancelToken) {
-    for (int i = 0; i < 3000; i++) {
+    // Use the proper IntelliJ API: blocks on a CountDownLatch via SmartModeScheduler,
+    // waits until neither scanning nor dumb mode is active (getCurrentMode() == 0),
+    // and checks ProgressManager.checkCanceled() internally.
+    var dumbService = DumbService.getInstance(project);
+    var deadline = System.currentTimeMillis() + 600_000;
+    var remaining = 600_000L;
+    while (dumbService.isDumb()) {
       if (cancelToken != null) cancelToken.checkCanceled();
-      if (!DumbService.isDumb(project)) return;
-      try { Thread.sleep(200); } catch (InterruptedException e) { break; }
+      if (remaining <= 0) break;
+      var ok = dumbService.waitForSmartMode(Math.min(remaining, 30_000));
+      if (ok) return;
+      remaining = deadline - System.currentTimeMillis();
     }
-    if (DumbService.isDumb(project)) {
+    if (dumbService.isDumb()) {
       LOG.warn("Still in dumb mode after 600s wait, proceeding anyway");
     }
   }
