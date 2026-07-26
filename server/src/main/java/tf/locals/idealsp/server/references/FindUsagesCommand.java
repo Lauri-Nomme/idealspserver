@@ -65,12 +65,7 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
     try {
       return EditorUtil.computeWithEditor(disposable, file, pos, editor -> {
         // Find the declaration element at cursor position
-        var target = (PsiElement) null;
-        try {
-          target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted());
-        } catch (com.intellij.openapi.project.IndexNotReadyException e) {
-          LOG.warn("FindUsages: TargetElementUtil failed in dumb mode, using PSI fallback");
-        }
+        var target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted());
 
         if (target == null) {
           // Fallback: walk up PSI tree to find a named declaration

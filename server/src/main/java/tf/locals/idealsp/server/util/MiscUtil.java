@@ -248,13 +248,13 @@ public class MiscUtil {
   }
 
   public static void waitForSmartMode(@NotNull Project project, @Nullable CancelChecker cancelToken) {
-    for (int i = 0; i < 300; i++) {
+    for (int i = 0; i < 3000; i++) {
       if (cancelToken != null) cancelToken.checkCanceled();
       if (!DumbService.isDumb(project)) return;
       try { Thread.sleep(200); } catch (InterruptedException e) { break; }
     }
     if (DumbService.isDumb(project)) {
-      LOG.warn("Still in dumb mode after 60s wait, proceeding anyway");
+      LOG.warn("Still in dumb mode after 600s wait, proceeding anyway");
     }
   }
 }
