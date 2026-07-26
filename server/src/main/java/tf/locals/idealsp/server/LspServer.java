@@ -112,6 +112,12 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
 
         project.getMessageBus().connect().subscribe(DumbService.DUMB_MODE, this);
 
+        // If already smart, exitDumbMode fired before our subscription.
+        // Notify the client immediately so it doesn't hang waiting for indexFinished.
+        if (!DumbService.isDumb(project)) {
+          getClient().notifyIndexFinished();
+        }
+
         LOG.info("LSP was initialized. Project: " + project);
       });
 
