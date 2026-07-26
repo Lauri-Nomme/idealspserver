@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import socket
+import sys
 import time
 
 # Workspace root (where .idea/ lives — enables Gradle import and proper indexing)
@@ -25,6 +26,9 @@ SOURCE_PATH = os.path.join(PROJECT_ROOT, "server/src/main/java")
 # Track diagnostics and code actions responses
 diagnostics_result = {}
 code_actions_result = {}
+
+# Buffer for notifications received outside the main wait loop
+notification_buffer = []
 
 # Track test results
 test_results = []
@@ -80,6 +84,10 @@ def recv_response(sock, expected_id):
         # Collect diagnostics notifications
         if resp.get("method") == "textDocument/publishDiagnostics":
             diagnostics_result["data"] = resp.get("params", {})
+
+        # Buffer idea/indexFinished so the test's wait loop can find it
+        if resp.get("method") == "idea/indexFinished":
+            notification_buffer.append(resp)
 
         # Respond to server-to-client requests (e.g. window/workDoneProgress/create)
         if "id" in resp and "method" in resp:
@@ -210,6 +218,7 @@ def skip_test(sock, test_num, test_name):
     record_result(test_num, test_name, "SKIP")
 
 def test_all():
+    notification_buffer.clear()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(90)
     sock.connect(("127.0.0.1", 8989))
@@ -254,6 +263,15 @@ def test_all():
     index_ready = False
     deadline = time.time() + 120
     while time.time() < deadline:
+        # Check if indexFinished was already buffered by recv_response
+        while notification_buffer:
+            notif = notification_buffer.pop(0)
+            if notif.get("method") == "idea/indexFinished":
+                print("    Received idea/indexFinished notification (from buffer)")
+                index_ready = True
+                break
+        if index_ready:
+            break
         msg = recv_message(sock, timeout=min(10, deadline - time.time()))
         if msg is None:
             continue
@@ -1802,3 +1820,5 @@ def test_all():
 
 if __name__ == "__main__":
     test_all()
+    if failed > 0:
+        sys.exit(1)
