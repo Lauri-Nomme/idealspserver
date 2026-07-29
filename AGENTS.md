@@ -32,9 +32,10 @@ The `xlsp` tool (Bun/TypeScript) provides CLI access to all LSP operations:
 ```bash
 # Refactoring
 bun run tools/xlsp/cli.ts refactor move --target=src/movepkg in src/Foo.java
-bun run tools/xlsp/cli.ts refactor safe-delete in src/Foo.java
-bun run tools/xlsp/cli.ts refactor extract-method newMethod in src/Foo.java
-bun run tools/xlsp/cli.ts refactor introduce-variable in src/Foo.java
+bun run tools/xlsp/cli.ts refactor safe-delete unusedMethod in src/Foo.java
+bun run tools/xlsp/cli.ts refactor extract-method newMethod --line=5 --char=4 in src/Foo.java
+bun run tools/xlsp/cli.ts refactor introduce-variable --line=10 --char=8 in src/Foo.java
+bun run tools/xlsp/cli.ts refactor inline someMethod in src/Foo.java
 
 # Code actions
 bun run tools/xlsp/cli.ts actions in src/Foo.java
