@@ -62,6 +62,8 @@ public class RefactorCommand extends LspCommand<RefactorResult> {
       case "extract-method" -> RefactoringHandler.applyExtractMethod(project, editor, file, params.getName());
       case "introduce-variable" -> RefactoringHandler.applyIntroduceVariable(project, editor, file);
       case "inline" -> RefactoringHandler.applyInline(project, editor, file);
+      case "move" -> RefactoringHandler.applyMove(project, editor, file, params.getTargetPackageUri());
+      case "safe-delete" -> RefactoringHandler.applySafeDelete(project, editor, file);
       default -> {
         LOG.warn("unknown refactor type: " + params.getType());
         yield false;

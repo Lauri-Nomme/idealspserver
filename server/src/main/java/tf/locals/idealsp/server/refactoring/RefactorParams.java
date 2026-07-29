@@ -9,6 +9,7 @@ public class RefactorParams {
   private @NotNull String type;
   private @NotNull Position position;
   private @Nullable String name;
+  private @Nullable String targetPackageUri;
 
   public RefactorParams() {}
 
@@ -27,4 +28,6 @@ public class RefactorParams {
   public void setPosition(@NotNull Position position) { this.position = position; }
   public @Nullable String getName() { return name; }
   public void setName(@Nullable String name) { this.name = name; }
+  public @Nullable String getTargetPackageUri() { return targetPackageUri; }
+  public void setTargetPackageUri(@Nullable String targetPackageUri) { this.targetPackageUri = targetPackageUri; }
 }

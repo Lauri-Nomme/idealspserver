@@ -7,6 +7,7 @@ import tf.locals.idealsp.server.dataflow.DataFlowParams;
 import tf.locals.idealsp.server.inspections.InspectionInfo;
 import tf.locals.idealsp.server.inspections.InspectionListParams;
 import tf.locals.idealsp.server.inspections.InspectionRunByNameParams;
+import tf.locals.idealsp.server.codeactions.CodeActionApplyParams;
 import tf.locals.idealsp.server.refactoring.RefactorParams;
 import tf.locals.idealsp.server.refactoring.RefactorResult;
 import tf.locals.idealsp.server.semantic.SemanticMatch;
@@ -40,4 +41,7 @@ public interface IdeaLspServer extends LanguageServer {
 
     @JsonRequest("idealsp/projectStructure")
     CompletableFuture<ProjectStructureResult> projectStructure(ProjectStructureParams params);
+
+    @JsonRequest("idealsp/codeActionApply")
+    CompletableFuture<org.eclipse.lsp4j.ApplyWorkspaceEditResponse> codeActionApply(CodeActionApplyParams params);
 }

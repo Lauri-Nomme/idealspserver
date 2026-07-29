@@ -1,12 +1,15 @@
 package tf.locals.idealsp.server.codeactions;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiPackage;
 import com.intellij.psi.PsiType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -219,6 +222,130 @@ public final class RefactoringHandler {
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
       LOG.warn("applyInline error: " + cause);
+      return false;
+    }
+  }
+
+  public static boolean applyMove(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file,
+                                   @Nullable String targetPackageUri) {
+    try {
+      if (targetPackageUri == null || targetPackageUri.isEmpty()) {
+        LOG.warn("applyMove: targetPackageUri is required");
+        return false;
+      }
+      int offset = editor.getCaretModel().getOffset();
+      PsiElement element = file.findElementAt(offset);
+      if (element == null) return false;
+
+      PsiClass psiClass = com.intellij.psi.util.PsiTreeUtil.getParentOfType(element, PsiClass.class);
+      if (psiClass == null) {
+        LOG.warn("applyMove: no class found at position");
+        return false;
+      }
+
+      // Resolve target directory
+      String targetPath = targetPackageUri;
+      if (targetPath.startsWith("file://")) targetPath = targetPath.substring(7);
+      com.intellij.openapi.vfs.VirtualFile targetDirVf =
+          com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByPath(targetPath);
+      if (targetDirVf == null || !targetDirVf.isDirectory()) {
+        LOG.warn("applyMove: target directory not found: " + targetPackageUri);
+        return false;
+      }
+
+      PsiDirectory targetDir = com.intellij.psi.PsiManager.getInstance(project).findDirectory(targetDirVf);
+      if (targetDir == null) return false;
+
+      PsiPackage targetPkg = com.intellij.psi.JavaDirectoryService.getInstance().getPackage(targetDir);
+      if (targetPkg == null) {
+        LOG.warn("applyMove: target directory has no package: " + targetPackageUri);
+        return false;
+      }
+
+      // Build the new file content with updated package declaration
+      String oldText = psiClass.getContainingFile().getText();
+      String newPackage = targetPkg.getQualifiedName();
+      String currentPackage = "";
+      try {
+        var pkgStmt = com.intellij.psi.util.PsiTreeUtil.findChildOfType(
+            psiClass.getContainingFile(), com.intellij.psi.PsiPackageStatement.class);
+        if (pkgStmt != null) {
+          currentPackage = pkgStmt.getPackageName();
+        }
+      } catch (Exception ignored) {}
+
+      String newText;
+      if (!currentPackage.isEmpty()) {
+        newText = oldText.replace("package " + currentPackage + ";", "package " + newPackage + ";");
+      } else if (!newPackage.isEmpty()) {
+        newText = "package " + newPackage + ";\n\n" + oldText;
+      } else {
+        newText = oldText;
+      }
+      final String finalNewText = newText;
+
+      // Create the new file in the target directory
+      String fileName = psiClass.getContainingFile().getName();
+      com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
+        try {
+          // Delete existing file in target if present
+          PsiFile existing = targetDir.findFile(fileName);
+          if (existing != null) {
+            existing.delete();
+          }
+          PsiFile newFile = targetDir.createFile(fileName);
+          com.intellij.openapi.editor.Document document =
+              com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(newFile.getVirtualFile());
+          if (document != null) {
+            document.setText(finalNewText);
+          }
+          // Delete the original file
+          psiClass.getContainingFile().delete();
+        } catch (Exception ex) {
+          LOG.warn("applyMove: error during write action: " + ex, ex);
+          throw new RuntimeException(ex);
+        }
+      });
+
+      return true;
+    } catch (Exception e) {
+      Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
+      LOG.warn("applyMove error: " + cause, cause);
+      return false;
+    }
+  }
+
+  public static boolean applySafeDelete(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
+    try {
+      int offset = editor.getCaretModel().getOffset();
+      PsiElement element = file.findElementAt(offset);
+      if (element == null) return false;
+
+      // Walk up to find the enclosing PsiElement (method, field, class, etc.)
+      PsiElement target = com.intellij.psi.util.PsiTreeUtil.getParentOfType(element,
+          com.intellij.psi.PsiMethod.class, com.intellij.psi.PsiField.class,
+          com.intellij.psi.PsiClass.class, com.intellij.psi.PsiVariable.class);
+      if (target == null) {
+        LOG.warn("applySafeDelete: no deletable element found at position");
+        return false;
+      }
+
+      // Use SafeDeleteProcessor with the correct signature:
+      // createInstance(Project, Runnable, PsiElement[], boolean, boolean)
+      Class<?> processorClass = Class.forName(
+          "com.intellij.refactoring.safeDelete.SafeDeleteProcessor");
+      Method createInstance = processorClass.getMethod(
+          "createInstance", Project.class, Runnable.class, PsiElement[].class, boolean.class, boolean.class);
+      Object processor = createInstance.invoke(null, project,
+          (Runnable) () -> {}, new PsiElement[]{target}, false, true);
+
+      // Run the processor
+      Method runMethod = processorClass.getMethod("run");
+      runMethod.invoke(processor);
+      return true;
+    } catch (Exception e) {
+      Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
+      LOG.warn("applySafeDelete error: " + cause, cause);
       return false;
     }
   }

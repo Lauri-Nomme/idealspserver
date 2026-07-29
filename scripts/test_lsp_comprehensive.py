@@ -1800,6 +1800,186 @@ def test_all():
     else:
         skip_test(sock, 50, "ProjectStructure entry")
 
+    # ============================================
+    # Move refactoring test
+    # ============================================
+    move_snippet = (
+        "package tf.locals.idealsp.server;\n"
+        "public class MoveMe {\n"
+        "    public void sayHello() {\n"
+        "        System.out.println(\"hello\");\n"
+        "    }\n"
+        "}\n"
+    )
+    move_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/MoveMe.java")
+    move_target_dir = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/movedest")
+
+    if should_run(52):
+        with open(move_test_file, "w") as f:
+            f.write(move_snippet)
+        os.makedirs(move_target_dir, exist_ok=True)
+        send_notification(sock, "textDocument/didOpen", {
+            "textDocument": {"uri": f"file://{move_test_file}", "languageId": "java",
+                             "version": 1, "text": move_snippet}
+        })
+        drain_notifications(sock, seconds=2)
+
+        sock.settimeout(120)
+        resp = send_and_recv(
+            sock,
+            "idealsp/refactor",
+            {"uri": f"file://{move_test_file}", "type": "move",
+             "position": {"line": 1, "character": 22},
+             "targetPackageUri": f"file://{move_target_dir}"},
+            52,
+        )
+        sock.settimeout(90)
+        applied = resp.get("result", {}).get("applied", False) if resp else False
+        if applied:
+            print(f"52. Refactor move: OK")
+            record_result(52, "Refactor move", "PASS")
+        else:
+            reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+            print(f"52. Refactor move: FAILED - {reason}")
+            record_result(52, "Refactor move", "FAIL" if resp else "KNOWN", reason)
+
+        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{move_test_file}"}})
+        drain_notifications(sock, seconds=1)
+        if os.path.exists(move_test_file):
+            os.remove(move_test_file)
+    else:
+        skip_test(sock, 52, "Refactor move")
+
+    # ============================================
+    # Safe delete refactoring test
+    # ============================================
+    safedelete_snippet = (
+        "package tf.locals.idealsp.server;\n"
+        "public class DeleteMe {\n"
+        "    private int keep;\n"
+        "    public void usedMethod() {\n"
+        "        System.out.println(\"used\");\n"
+        "    }\n"
+        "    public void unusedMethod() {\n"
+        "        int x = 1;\n"
+        "    }\n"
+        "}\n"
+    )
+    safedelete_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/DeleteMe.java")
+
+    if should_run(53):
+        with open(safedelete_test_file, "w") as f:
+            f.write(safedelete_snippet)
+        send_notification(sock, "textDocument/didOpen", {
+            "textDocument": {"uri": f"file://{safedelete_test_file}", "languageId": "java",
+                             "version": 1, "text": safedelete_snippet}
+        })
+        drain_notifications(sock, seconds=2)
+
+        sock.settimeout(120)
+        resp = send_and_recv(
+            sock,
+            "idealsp/refactor",
+            {"uri": f"file://{safedelete_test_file}", "type": "safe-delete",
+             "position": {"line": 6, "character": 23}},
+            53,
+        )
+        sock.settimeout(90)
+        applied = resp.get("result", {}).get("applied", False) if resp else False
+        if applied:
+            print(f"53. Refactor safe-delete: OK")
+            record_result(53, "Refactor safe-delete", "PASS")
+        else:
+            reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+            print(f"53. Refactor safe-delete: FAILED - {reason}")
+            record_result(53, "Refactor safe-delete", "FAIL" if resp else "KNOWN", reason)
+
+        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{safedelete_test_file}"}})
+        drain_notifications(sock, seconds=1)
+        if os.path.exists(safedelete_test_file):
+            os.remove(safedelete_test_file)
+    else:
+        skip_test(sock, 53, "Refactor safe-delete")
+
+    # ============================================
+    # codeActionApply test
+    # ============================================
+    apply_snippet = (
+        "package tf.locals.idealsp.server;\n"
+        "public class ApplyTest {\n"
+        "    public static void f() {\n"
+        "        int a = \"\";\n"
+        "        System.out.println();\n"
+        "    }\n"
+        "}\n"
+    )
+    apply_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/ApplyTest.java")
+
+    if should_run(54):
+        with open(apply_test_file, "w") as f:
+            f.write(apply_snippet)
+        send_notification(sock, "textDocument/didOpen", {
+            "textDocument": {"uri": f"file://{apply_test_file}", "languageId": "java",
+                             "version": 1, "text": apply_snippet}
+        })
+        drain_notifications(sock, seconds=5)
+
+        # Get code actions first
+        code_action_resp = send_and_recv(
+            sock,
+            "textDocument/codeAction",
+            {
+                "textDocument": {"uri": f"file://{apply_test_file}"},
+                "range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 20}},
+                "context": {"diagnostics": []},
+            },
+            541,
+        )
+        actions = []
+        if code_action_resp and "result" in code_action_resp:
+            for item in code_action_resp["result"]:
+                if isinstance(item, dict) and "title" in item.get("right", item):
+                    action_item = item.get("right", item)
+                    actions.append(action_item)
+
+        # Find the "Change variable 'a' type to 'String'" action
+        apply_title = None
+        for a in actions:
+            t = a.get("title", "")
+            if "Change variable" in t and "type to" in t:
+                apply_title = t
+                break
+
+        if apply_title:
+            sock.settimeout(120)
+            resp = send_and_recv(
+                sock,
+                "idealsp/codeActionApply",
+                {"title": apply_title, "uri": f"file://{apply_test_file}",
+                 "range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 20}}},
+                54,
+            )
+            sock.settimeout(90)
+            applied = resp.get("result", {}).get("applied", False) if resp else False
+            if applied:
+                print(f"54. codeActionApply: OK - applied '{apply_title}'")
+                record_result(54, "codeActionApply", "PASS", apply_title)
+            else:
+                reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
+                print(f"54. codeActionApply: FAILED - {reason}")
+                record_result(54, "codeActionApply", "FAIL" if resp else "KNOWN", reason)
+        else:
+            action_titles = [a.get("title", "?") for a in actions]
+            print(f"54. codeActionApply: FAILED - no matching action found among {action_titles}")
+            record_result(54, "codeActionApply", "FAIL", f"no action found among {action_titles}")
+
+        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{apply_test_file}"}})
+        drain_notifications(sock, seconds=1)
+        if os.path.exists(apply_test_file):
+            os.remove(apply_test_file)
+    else:
+        skip_test(sock, 54, "codeActionApply")
+
     # Test shutdown lifecycle
     if should_run(51):
         resp = send_and_recv(sock, "shutdown", {}, 51)
