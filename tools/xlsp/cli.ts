@@ -292,7 +292,7 @@ async function main() {
       case "rf": {
         const inIdxRf = positional.indexOf("in")
         const refType = positional.slice(1, inIdxRf >= 0 ? inIdxRf : positional.length).join(" ")
-        if (!refType) { printJson(fail(operation, "refactor type required", "Usage: xlsp refactor <type> [symbol] in <file> [--target=<dir>] [--line=N] [--char=N]\nTypes: extract-method [newName], introduce-variable [--line=N --char=N], inline [symbol], move [symbol] --target=<dir>, safe-delete <symbol>")); return }
+        if (!refType) { printJson(fail(operation, "refactor type required", "Usage: xlsp refactor <type> [symbol] in <file> [--pos=line:col[-endLine:endCol]] [--target=<dir>]\nTypes: extract-method [newName], introduce-variable, inline [symbol], move [symbol] --target=<dir>, safe-delete <symbol>")); return }
         const refFile = inIdxRf >= 0 ? positional.slice(inIdxRf + 1).join(" ") : undefined
         if (!refFile) { printJson(fail(operation, "file required", "Usage: xlsp refactor <type> [args] in <file>")); return }
         const refArgs = refType.split(/\s+/)
@@ -314,31 +314,41 @@ async function main() {
         })
         await client.drainNotifications(500)
 
-        // Determine position: some types resolve a symbol, others need explicit --line/--char
-        let pos: SymbolPosition | null = null
-        const explicitLine = parseInt(args.line as string)
-        const explicitChar = parseInt(args.char as string)
-        if (!isNaN(explicitLine) && !isNaN(explicitChar)) {
-          pos = { uri: `file://${absFile}`, file: absFile, line: explicitLine, character: explicitChar, opened: true }
+        // Parse --pos=line:col or --pos=line:col-endLine:endCol
+        let posLine = 0, posChar = 0
+        let selStartLine: number | undefined, selStartChar: number | undefined, selEndLine: number | undefined, selEndChar: number | undefined
+        const posArg = args.pos as string | undefined
+        if (posArg) {
+          const rangeMatch = posArg.match(/^(\d+):(\d+)-(\d+):(\d+)$/)
+          if (rangeMatch) {
+            posLine = parseInt(rangeMatch[1])
+            posChar = parseInt(rangeMatch[2])
+            selStartLine = parseInt(rangeMatch[1])
+            selStartChar = parseInt(rangeMatch[2])
+            selEndLine = parseInt(rangeMatch[3])
+            selEndChar = parseInt(rangeMatch[4])
+          } else {
+            const singleMatch = posArg.match(/^(\d+):(\d+)$/)
+            if (singleMatch) {
+              posLine = parseInt(singleMatch[1])
+              posChar = parseInt(singleMatch[2])
+            }
+          }
         } else if (rtype === "safe-delete" || rtype === "inline" || rtype === "move") {
-          // Resolve the symbol name to find its position in the file
-          const targetSymbol = name || (rtype === "move" ? undefined : undefined)
+          const targetSymbol = name || undefined
           if (targetSymbol) {
-            pos = await resolveSymbolPosition(client, targetSymbol, refFile, wsRoot)
+            const resolved = await resolveSymbolPosition(client, targetSymbol, refFile, wsRoot)
+            if (resolved) {
+              posLine = resolved.line
+              posChar = resolved.character
+            }
           }
-          if (!pos && rtype !== "move") {
-            client.sendNotification("textDocument/didClose", { textDocument: { uri: `file://${absFile}` } })
-            printJson(fail(operation, "symbol not found", `Specify the ${rtype} target symbol name or use --line=N --char=N`))
-            return
-          }
-        }
-        // For extract-method and introduce-variable: use position from --line/--char (default 0,0)
-        if (!pos) {
-          pos = { uri: `file://${absFile}`, file: absFile, line: 0, character: 0, opened: true }
         }
 
         const targetUri = targetArg ? `file://${targetArg.startsWith("/") ? targetArg : `${wsRoot}/${targetArg}`}` : undefined
-        const result = await refactor(client, `file://${absFile}`, rtype, pos.line, pos.character, name, targetUri)
+        const result = await refactor(client, `file://${absFile}`, rtype, posLine, posChar, name, targetUri,
+          selStartLine !== undefined ? { line: selStartLine, character: selStartChar! } : undefined,
+          selEndLine !== undefined ? { line: selEndLine, character: selEndChar! } : undefined)
         client.sendNotification("textDocument/didClose", { textDocument: { uri: `file://${absFile}` } })
         printJson({ success: result.applied, operation, query: rtype, file: refFile, applied: result.applied, failureReason: result.failureReason })
         break

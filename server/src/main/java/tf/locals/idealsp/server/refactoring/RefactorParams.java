@@ -10,6 +10,8 @@ public class RefactorParams {
   private @NotNull Position position;
   private @Nullable String name;
   private @Nullable String targetPackageUri;
+  private @Nullable Position startRange;
+  private @Nullable Position endRange;
 
   public RefactorParams() {}
 
@@ -30,4 +32,8 @@ public class RefactorParams {
   public void setName(@Nullable String name) { this.name = name; }
   public @Nullable String getTargetPackageUri() { return targetPackageUri; }
   public void setTargetPackageUri(@Nullable String targetPackageUri) { this.targetPackageUri = targetPackageUri; }
+  public @Nullable Position getStartRange() { return startRange; }
+  public void setStartRange(@Nullable Position startRange) { this.startRange = startRange; }
+  public @Nullable Position getEndRange() { return endRange; }
+  public void setEndRange(@Nullable Position endRange) { this.endRange = endRange; }
 }

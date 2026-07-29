@@ -30,6 +30,15 @@ public class EditorUtil {
   public static Editor createEditor(@NotNull Disposable context,
                                     @NotNull PsiFile file,
                                     @NotNull Position position) {
+    return createEditor(context, file, position, null, null);
+  }
+
+  @NotNull
+  public static Editor createEditor(@NotNull Disposable context,
+                                    @NotNull PsiFile file,
+                                    @NotNull Position position,
+                                    @Nullable Position selectionStart,
+                                    @Nullable Position selectionEnd) {
     Document doc = MiscUtil.getDocument(file);
     EditorFactory editorFactory = EditorFactory.getInstance();
 
@@ -65,6 +74,21 @@ public class EditorUtil {
       });
     }
 
+    // If a range is provided, set the selection
+    if (selectionStart != null && selectionEnd != null) {
+      int startOffset = created.logicalPositionToOffset(new LogicalPosition(selectionStart.getLine(), selectionStart.getCharacter()));
+      int endOffset = created.logicalPositionToOffset(new LogicalPosition(selectionEnd.getLine(), selectionEnd.getCharacter()));
+      final int finalStart = startOffset;
+      final int finalEnd = endOffset;
+      if (EDT.isCurrentThreadEdt()) {
+        created.getSelectionModel().setSelection(finalStart, finalEnd);
+      } else {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          created.getSelectionModel().setSelection(finalStart, finalEnd);
+        });
+      }
+    }
+
     Disposer.register(context, () -> {
       if (!created.isDisposed()) {
         editorFactory.releaseEditor(created);
@@ -79,7 +103,7 @@ public class EditorUtil {
                                 @NotNull PsiFile file,
                                 @NotNull Position position,
                                 @NotNull Consumer<Editor> callback) {
-    computeWithEditor(context, file, position, editor -> {
+    computeWithEditor(context, file, position, null, null, editor -> {
       callback.accept(editor);
       return null;
     });
@@ -90,6 +114,33 @@ public class EditorUtil {
                                         @NotNull Position position,
                                         @NotNull Function<Editor, T> callback) {
     Editor editor = createEditor(context, file, position);
+
+    try {
+      return callback.apply(editor);
+    } catch (Exception e) {
+      throw MiscUtil.wrap(e);
+    }
+  }
+
+  public static void withEditor(@NotNull Disposable context,
+                                @NotNull PsiFile file,
+                                @NotNull Position position,
+                                @Nullable Position selectionStart,
+                                @Nullable Position selectionEnd,
+                                @NotNull Consumer<Editor> callback) {
+    computeWithEditor(context, file, position, selectionStart, selectionEnd, editor -> {
+      callback.accept(editor);
+      return null;
+    });
+  }
+
+  public static <T> T computeWithEditor(@NotNull Disposable context,
+                                        @NotNull PsiFile file,
+                                        @NotNull Position position,
+                                        @Nullable Position selectionStart,
+                                        @Nullable Position selectionEnd,
+                                        @NotNull Function<Editor, T> callback) {
+    Editor editor = createEditor(context, file, position, selectionStart, selectionEnd);
 
     try {
       return callback.apply(editor);

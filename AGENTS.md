@@ -30,11 +30,12 @@ python3 scripts/test_lsp_comprehensive.py --tests 52,53,54
 ## xlsp CLI
 The `xlsp` tool (Bun/TypeScript) provides CLI access to all LSP operations:
 ```bash
-# Refactoring
-bun run tools/xlsp/cli.ts refactor move --target=src/movepkg in src/Foo.java
+# Refactoring — --pos=line:col or --pos=line:col-endLine:endCol
+bun run tools/xlsp/cli.ts refactor move MyClass --target=src/movepkg in src/Foo.java
 bun run tools/xlsp/cli.ts refactor safe-delete unusedMethod in src/Foo.java
-bun run tools/xlsp/cli.ts refactor extract-method newMethod --line=5 --char=4 in src/Foo.java
-bun run tools/xlsp/cli.ts refactor introduce-variable --line=10 --char=8 in src/Foo.java
+bun run tools/xlsp/cli.ts refactor extract-method newMethod --pos=5:4 in src/Foo.java
+bun run tools/xlsp/cli.ts refactor extract-method newMethod --pos=5:4-10:20 in src/Foo.java
+bun run tools/xlsp/cli.ts refactor introduce-variable --pos=10:8 in src/Foo.java
 bun run tools/xlsp/cli.ts refactor inline someMethod in src/Foo.java
 
 # Code actions
