@@ -1611,7 +1611,10 @@ def test_all():
             sock,
             "idealsp/refactor",
             {"uri": test_uri, "type": "extract-method",
-             "position": {"line": 2, "character": 8}, "name": None},
+             "position": {"line": 2, "character": 8},
+             "startRange": {"line": 2, "character": 8},
+             "endRange": {"line": 4, "character": 23},
+             "name": None},
             43,
         )
         sock.settimeout(90)

@@ -8,6 +8,8 @@ export async function refactor(
   character: number,
   name?: string,
   targetPackageUri?: string,
+  selectionStart?: { line: number; character: number },
+  selectionEnd?: { line: number; character: number },
 ): Promise<{ applied: boolean; operation: string; failureReason?: string }> {
   const body: Record<string, any> = {
     uri,
@@ -17,6 +19,12 @@ export async function refactor(
   }
   if (targetPackageUri) {
     body.targetPackageUri = targetPackageUri
+  }
+  if (selectionStart) {
+    body.startRange = selectionStart
+  }
+  if (selectionEnd) {
+    body.endRange = selectionEnd
   }
   const resp = await client.sendRequest("idealsp/refactor", body, 120_000)
 

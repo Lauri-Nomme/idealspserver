@@ -40,7 +40,11 @@ public class RefactorCommand extends LspCommand<RefactorResult> {
     var disposable = com.intellij.openapi.util.Disposer.newDisposable();
     try {
       var resultRef = new com.intellij.openapi.util.Ref<RefactorResult>();
-      EditorUtil.withEditor(disposable, file, params.getPosition(), editor -> {
+      var startRange = params.getStartRange();
+      var endRange = params.getEndRange();
+      boolean hasRange = startRange != null && endRange != null;
+      EditorUtil.withEditor(disposable, file, params.getPosition(),
+          hasRange ? startRange : null, hasRange ? endRange : null, editor -> {
         if (editor == null) {
           resultRef.set(new RefactorResult(params.getType(), false, "editor not available"));
           return;
