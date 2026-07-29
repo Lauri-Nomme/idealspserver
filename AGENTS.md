@@ -17,9 +17,31 @@ Before each session, read `iteration.md` to understand current workflow and any 
 # Build and install plugin
 bash scripts/shell/install-plugin.sh
 
-# Run tests
+# Run unit tests (individual test class)
+cd server && ./gradlew test --tests "tf.locals.idealsp.server.lsp.RefactoringCommandTest" --no-daemon
+
+# Run comprehensive integration tests
 python3 scripts/test_lsp_comprehensive.py
+
+# Run specific comprehensive tests
+python3 scripts/test_lsp_comprehensive.py --tests 52,53,54
 ```
+
+## xlsp CLI
+The `xlsp` tool (Bun/TypeScript) provides CLI access to all LSP operations:
+```bash
+# Refactoring
+bun run tools/xlsp/cli.ts refactor move --target=src/movepkg in src/Foo.java
+bun run tools/xlsp/cli.ts refactor safe-delete in src/Foo.java
+bun run tools/xlsp/cli.ts refactor extract-method newMethod in src/Foo.java
+bun run tools/xlsp/cli.ts refactor introduce-variable in src/Foo.java
+
+# Code actions
+bun run tools/xlsp/cli.ts actions in src/Foo.java
+bun run tools/xlsp/cli.ts apply "Change variable 'a' type to 'String'" in src/Foo.java
+```
+
+All refactoring commands use PSI manipulation directly (file create/delete with package declaration rewrite for move, `SafeDeleteProcessor` reflection for safe-delete) to avoid dialog/context requirements.
 
 ## IntelliJ Internal API Usage
 
