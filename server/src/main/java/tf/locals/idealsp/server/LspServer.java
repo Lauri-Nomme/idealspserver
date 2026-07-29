@@ -115,7 +115,9 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
         // If already smart, exitDumbMode fired before our subscription.
         // Notify the client immediately so it doesn't hang waiting for indexFinished.
         if (!DumbService.isDumb(project)) {
+          LOG.warn("Project already smart, sending notifyIndexFinished");
           getClient().notifyIndexFinished();
+          LOG.warn("notifyIndexFinished sent");
         }
 
         LOG.info("LSP was initialized. Project: " + project);
@@ -314,6 +316,7 @@ it.setTypeHierarchyProvider(true);
     }
   }
 
+  @Override
   public CompletableFuture<org.eclipse.lsp4j.ApplyWorkspaceEditResponse> codeActionApply(
           @NotNull CodeActionApplyParams params) {
     try {

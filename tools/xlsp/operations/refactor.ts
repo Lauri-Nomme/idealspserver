@@ -7,13 +7,18 @@ export async function refactor(
   line: number,
   character: number,
   name?: string,
+  targetPackageUri?: string,
 ): Promise<{ applied: boolean; operation: string; failureReason?: string }> {
-  const resp = await client.sendRequest("idealsp/refactor", {
+  const body: Record<string, any> = {
     uri,
     type: refactorType,
     position: { line, character },
     name: name || null,
-  }, 120_000)
+  }
+  if (targetPackageUri) {
+    body.targetPackageUri = targetPackageUri
+  }
+  const resp = await client.sendRequest("idealsp/refactor", body, 120_000)
 
   const result = resp?.result as any
   if (!result) {
