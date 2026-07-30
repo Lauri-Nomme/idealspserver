@@ -233,7 +233,6 @@ public final class RefactoringHandler {
         return false;
       }
 
-      // Resolve target directory
       String targetPath = targetPackageUri;
       if (targetPath.startsWith("file://")) targetPath = targetPath.substring(7);
       com.intellij.openapi.vfs.VirtualFile targetDirVf =
@@ -246,58 +245,20 @@ public final class RefactoringHandler {
       PsiDirectory targetDir = com.intellij.psi.PsiManager.getInstance(project).findDirectory(targetDirVf);
       if (targetDir == null) return false;
 
-      PsiPackage targetPkg = com.intellij.psi.JavaDirectoryService.getInstance().getPackage(targetDir);
-      if (targetPkg == null) {
-        LOG.warn("applyMove: target directory has no package: " + targetPackageUri);
-        return false;
-      }
-
-      // Build the new file content with updated package declaration
-      String oldText = psiClass.getContainingFile().getText();
-      String newPackage = targetPkg.getQualifiedName();
-      String currentPackage = "";
-      try {
-        var pkgStmt = com.intellij.psi.util.PsiTreeUtil.findChildOfType(
-            psiClass.getContainingFile(), com.intellij.psi.PsiPackageStatement.class);
-        if (pkgStmt != null) {
-          currentPackage = pkgStmt.getPackageName();
-        }
-      } catch (Exception ignored) {}
-
-      String newText;
-      if (!currentPackage.isEmpty()) {
-        newText = oldText.replace("package " + currentPackage + ";", "package " + newPackage + ";");
-      } else if (!newPackage.isEmpty()) {
-        newText = "package " + newPackage + ";\n\n" + oldText;
-      } else {
-        newText = oldText;
-      }
-      final String finalNewText = newText;
-
-      // Create the new file in the target directory
-      String fileName = psiClass.getContainingFile().getName();
+      // MoveClassesOrPackagesUtil.doMoveClass handles the entire move:
+      // moves the .java file to the target directory, updates the package declaration,
+      // and updates all references across the project.
+      // Must run inside a write action.
+      var resultRef = new com.intellij.openapi.util.Ref<com.intellij.psi.PsiClass>();
       com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
         try {
-          // Delete existing file in target if present
-          PsiFile existing = targetDir.findFile(fileName);
-          if (existing != null) {
-            existing.delete();
-          }
-          PsiFile newFile = targetDir.createFile(fileName);
-          com.intellij.openapi.editor.Document document =
-              com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(newFile.getVirtualFile());
-          if (document != null) {
-            document.setText(finalNewText);
-          }
-          // Delete the original file
-          psiClass.getContainingFile().delete();
+          resultRef.set(com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesUtil.doMoveClass(
+              psiClass, targetDir));
         } catch (Exception ex) {
-          LOG.warn("applyMove: error during write action: " + ex, ex);
-          throw new RuntimeException(ex);
+          LOG.warn("applyMove: doMoveClass failed: " + ex, ex);
         }
       });
-
-      return true;
+      return resultRef.get() != null;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
       LOG.warn("applyMove error: " + cause, cause);
