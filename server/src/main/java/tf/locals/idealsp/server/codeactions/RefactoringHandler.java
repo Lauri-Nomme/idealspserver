@@ -180,29 +180,16 @@ public final class RefactoringHandler {
     }
   }
 
-  private static @Nullable PsiElement findInlineTarget(@NotNull PsiFile file, int offset) {
-    PsiElement element = file.findElementAt(offset);
-    if (element == null) return null;
-
-    // Walk up from the leaf identifier to find a reference expression or method call
-    PsiElement candidate = element;
-    while (candidate != null) {
-      String cn = candidate.getClass().getName();
-      if (cn.contains("PsiReferenceExpression") ||
-          cn.contains("PsiMethodCallExpression") ||
-          cn.contains("PsiNewExpression")) {
-        return candidate;
-      }
-      candidate = candidate.getParent();
-    }
-    return null;
-  }
-
   public static boolean isInlineAvailable(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     try {
       int offset = editor.getCaretModel().getOffset();
-      PsiElement target = findInlineTarget(file, offset);
-      return target != null;
+      PsiElement element = com.intellij.codeInsight.TargetElementUtil.findTargetElement(editor, offset);
+      if (element == null) return false;
+      for (com.intellij.lang.refactoring.InlineActionHandler handler :
+           com.intellij.lang.refactoring.InlineActionHandler.EP_NAME.getExtensionList()) {
+        if (handler.isEnabledOnElement(element, editor)) return true;
+      }
+      return false;
     } catch (Exception e) {
       return false;
     }
@@ -211,14 +198,17 @@ public final class RefactoringHandler {
   public static boolean applyInline(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     try {
       int offset = editor.getCaretModel().getOffset();
-      PsiElement target = findInlineTarget(file, offset);
-      if (target == null) return false;
+      PsiElement element = com.intellij.codeInsight.TargetElementUtil.findTargetElement(editor, offset);
+      if (element == null) return false;
 
-      // Inline the target using the appropriate handler
-      Class<?> handlerClass = Class.forName("com.intellij.refactoring.inline.InlineHandler");
-      Method invokeMethod = handlerClass.getMethod("invoke", Project.class, Editor.class, PsiElement.class);
-      invokeMethod.invoke(null, project, editor, target);
-      return true;
+      for (com.intellij.lang.refactoring.InlineActionHandler handler :
+           com.intellij.lang.refactoring.InlineActionHandler.EP_NAME.getExtensionList()) {
+        if (handler.isEnabledOnElement(element, editor)) {
+          handler.inlineElement(project, editor, element);
+          return true;
+        }
+      }
+      return false;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
       LOG.warn("applyInline error: " + cause);
