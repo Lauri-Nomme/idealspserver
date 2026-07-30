@@ -24,17 +24,19 @@ export class LspClient {
   private buf = ""
   private nextId = 1
   private port: number
+  private host: string
   private diagnostics: DiagnosticNotification[] = []
   private messageQueue: LspMessage[] = []
   private wakeup: (() => void) | null = null
 
-  constructor(port = 8989) {
+  constructor(port = 8989, host = "127.0.0.1") {
     this.port = port
+    this.host = host
   }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket = connect({ host: "127.0.0.1", port: this.port }, () => {
+      this.socket = connect({ host: this.host, port: this.port }, () => {
         this.socket!.setEncoding("utf8")
         this.socket!.on("data", (data: string) => this.onData(data))
         resolve()
