@@ -6,9 +6,16 @@ export async function getDiagnostics(
   workspaceRoot: string
 ): Promise<any[]> {
   const absPath = file.startsWith("/") ? file : `${workspaceRoot}/${file}`
-  const uri = `file://${absPath}`
+  const uri = `file://${absPath.replace(/\\/g, "/")}`
 
-  const text = await Bun.file(absPath).text()
+  let text = ""
+  try {
+    text = await Bun.file(absPath).text()
+  } catch {
+    try {
+      text = await Bun.file(file).text()
+    } catch {}
+  }
   client.sendNotification("textDocument/didOpen", {
     textDocument: { uri, languageId: "java", version: 1, text },
   })

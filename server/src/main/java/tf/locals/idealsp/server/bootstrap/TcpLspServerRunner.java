@@ -32,7 +32,7 @@ class TcpLspServerRunner extends LspServerRunnerBase {
   protected void prepareForListening() {
     LOG.info("Starting the LSP server on port: " + port);
     try {
-      serverSocket = AsynchronousServerSocketChannel.open().bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port));
+      serverSocket = AsynchronousServerSocketChannel.open().bind(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), port));
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

@@ -13,10 +13,12 @@ import { getSignatureHelp } from "./operations/signature"
 import { getCodeActions, applyCodeAction } from "./operations/actions"
 import { getCallHierarchy } from "./operations/calls"
 import { getDataflow } from "./operations/dataflow"
+import { prepareTypeHierarchy, getTypeHierarchySupertypes, getTypeHierarchySubtypes } from "./operations/typehier"
 import { semanticSearch, buildPattern } from "./operations/semantic"
 import { listInspections, runInspection, runInspectionOnAllFiles } from "./operations/inspect"
 import { renameSymbol, prepareRename } from "./operations/rename"
 import { refactor } from "./operations/refactor"
+import { getProjectStructure } from "./operations/structure"
 
 interface Output {
   success: boolean
@@ -111,10 +113,11 @@ function parseArgs(argv: string[]) {
 
 async function main() {
   const { args, positional } = parseArgs(Bun.argv.slice(2))
-  const port = parseInt(args.port as string) || 8989
+  const port = parseInt(args.port as string) || parseInt(process.env.XLSP_PORT || "8989")
+  const host = (args.host as string) || process.env.XLSP_HOST || "127.0.0.1"
 
   if (positional.length < 1) {
-    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--wait] [--context N] [--severity error|warn|info|hint] [--constraint $Var.key=val] [--lang java] [--scope project|file]"))
+    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--host IP] [--wait] [--context N] [--severity error|warn|info|hint] [--constraint $Var.key=val] [--lang java] [--scope project|file]"))
     process.exit(1)
   }
 
@@ -125,7 +128,7 @@ async function main() {
   const severity = (args.severity as string) || ""
   const ctxLines = parseInt(args.context as string) || 0
 
-  const client = new LspClient(port)
+  const client = new LspClient(port, host)
 
   try {
     await client.connect()
@@ -400,9 +403,34 @@ async function main() {
         break
       }
 
+      case "typehier":
+      case "th": {
+        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        if (!pos) { printJson(fail(operation, "symbol not found")); return }
+        const items = await prepareTypeHierarchy(client, pos)
+        if (pos.opened) client.sendNotification("textDocument/didClose", { textDocument: { uri: pos.uri } })
+        const dir = (args.dir as string) || "super"
+        if (items.length === 0) { printJson(fail(operation, "no type hierarchy")); break }
+        const requestItem = { ...items[0], line: undefined, character: undefined, file: undefined }
+        const parents = dir === "super" || dir === "both" ? await getTypeHierarchySupertypes(client, items[0]) : []
+        const children = dir === "sub" || dir === "both" ? await getTypeHierarchySubtypes(client, items[0]) : []
+        printJson({ success: true, operation, query: symbol, file: file ?? pos.file,
+          count: { parents: parents.length, children: children.length },
+          results: [{ item: items[0], parents, children }] })
+        break
+      }
+
       case "calls":
       case "call": {
-        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        const lineArg = args.line !== undefined ? parseInt(args.line as string) : undefined
+        const charArg = args.char !== undefined ? parseInt(args.char as string) : undefined
+        let pos: SymbolPosition | null = null
+        if (lineArg !== undefined && file) {
+          const absFile = file.startsWith("/") ? file : `${wsRoot}/${file}`
+          pos = { uri: `file://${absFile.replace(/\\/g, "/")}`, line: lineArg, character: charArg || 0, file: absFile }
+        } else {
+          pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        }
         if (!pos) { printJson(fail(operation, "symbol not found")); return }
         const dir = (args.dir as string) || "incoming"
         const results = await getCallHierarchy(client, pos, dir === "outgoing" ? "outgoing" : "incoming")
@@ -414,7 +442,15 @@ async function main() {
 
       case "dataflow":
       case "df": {
-        const pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        const lineArg = args.line !== undefined ? parseInt(args.line as string) : undefined
+        const charArg = args.char !== undefined ? parseInt(args.char as string) : undefined
+        let pos: SymbolPosition | null = null
+        if (lineArg !== undefined && file) {
+          const absFile = file.startsWith("/") ? file : `${wsRoot}/${file}`
+          pos = { uri: `file://${absFile.replace(/\\/g, "/")}`, line: lineArg, character: charArg || 0, file: absFile }
+        } else {
+          pos = await resolveSymbolPosition(client, symbol, file, wsRoot)
+        }
         if (!pos) { printJson(fail(operation, "symbol not found")); return }
         const dir = (args.dir as string) || "from"
         const results = await getDataflow(client, pos, dir === "to" ? "to" : "from")
@@ -429,6 +465,22 @@ async function main() {
         const query = symbol || ""
         const results = await listInspections(client, query)
         printJson(ok(operation, results, query))
+        break
+      }
+
+      case "structure":
+      case "struct": {
+        const result = await getProjectStructure(client)
+        printJson({
+          success: true,
+          operation,
+          count: {
+            modules: result.modules?.length || 0,
+            entryPoints: result.entryPoints?.length || 0,
+            sourceRoots: result.sourceLayout?.length || 0,
+          },
+          results: [result],
+        })
         break
       }
 
