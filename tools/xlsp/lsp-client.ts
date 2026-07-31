@@ -28,6 +28,8 @@ export class LspClient {
   private diagnostics: DiagnosticNotification[] = []
   private messageQueue: LspMessage[] = []
   private wakeup: (() => void) | null = null
+  private indexingDone = false
+  private indexingWaiters: (() => void)[] = []
 
   constructor(port = 8989, host = "127.0.0.1") {
     this.port = port
@@ -122,6 +124,11 @@ export class LspClient {
       try {
         const msg = JSON.parse(body) as LspMessage
         this.messageQueue.push(msg)
+        if (msg.method === "idea/indexFinished") {
+          this.indexingDone = true
+          for (const w of this.indexingWaiters) w()
+          this.indexingWaiters = []
+        }
         if (this.wakeup) {
           const wake = this.wakeup
           this.wakeup = null
@@ -189,8 +196,22 @@ export class LspClient {
   }
 
   async waitForIndexing(seconds = 15): Promise<void> {
-    const override = Number(process.env.XLSP_INDEX_WAIT_SECONDS)
-    const wait = Number.isFinite(override) && override >= 0 ? override : seconds
-    await new Promise(r => setTimeout(r, wait * 1000))
+    const raw = process.env.XLSP_INDEX_WAIT_SECONDS
+    const override = raw !== undefined && raw !== "" ? Number(raw) : NaN
+    const timeoutMs = (Number.isFinite(override) && override >= 0 ? override : seconds) * 1000
+
+    if (this.indexingDone) return
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.indexingWaiters = this.indexingWaiters.filter(w => w !== onFinished)
+        resolve()
+      }, timeoutMs)
+      const onFinished = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      this.indexingWaiters.push(onFinished)
+    })
   }
 }
