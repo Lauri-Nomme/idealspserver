@@ -1,0 +1,26 @@
+name: xlsp tests
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'tools/xlsp/**'
+      - '.github/workflows/xlsp-tests.yaml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'tools/xlsp/**'
+      - '.github/workflows/xlsp-tests.yaml'
+jobs:
+  test-xlsp:
+    name: Test xlsp CLI (Bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Run tests
+        run: bun test tools/xlsp/
