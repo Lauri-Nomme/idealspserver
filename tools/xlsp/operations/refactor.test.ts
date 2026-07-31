@@ -75,6 +75,8 @@ describe("xlsp refactor command", () => {
   slowTest("refactor move with --target", async () => {
     const mock = await startMockServer({
       requestHandler: (method) => {
+        if (method === "textDocument/documentSymbol") return { result: [] }
+        if (method === "workspace/symbol") return { result: [] }
         if (method === "idealsp/refactor") return { result: { applied: true, operation: "move" } }
         return undefined
       },
@@ -111,6 +113,7 @@ describe("xlsp refactor command", () => {
     const mock = await startMockServer({
       requestHandler: (method) => {
         if (method === "textDocument/documentSymbol") return { result: [] }
+        if (method === "workspace/symbol") return { result: [] }
         if (method === "idealsp/refactor") return { result: { applied: true, operation: "inline" } }
         return undefined
       },
@@ -131,6 +134,7 @@ describe("xlsp refactor command", () => {
     const mock = await startMockServer({
       requestHandler: (method) => {
         if (method === "textDocument/documentSymbol") return { result: [] }
+        if (method === "workspace/symbol") return { result: [] }
         if (method === "idealsp/refactor") return { result: { applied: true, operation: "safe-delete" } }
         return undefined
       },
