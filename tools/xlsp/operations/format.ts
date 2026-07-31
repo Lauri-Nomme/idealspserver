@@ -5,32 +5,6 @@ interface TextEdit {
   newText: string
 }
 
-function applyTextEdits(text: string, edits: TextEdit[]): string {
-  const sorted = [...edits].sort((a, b) => {
-    if (b.range.start.line !== a.range.start.line) return b.range.start.line - a.range.start.line
-    return b.range.start.character - a.range.start.character
-  })
-  const lines = text.split("\n")
-  for (const edit of sorted) {
-    const { start, end } = edit.range
-    const startIdx = lineCharToOffset(lines, start.line, start.character)
-    const endIdx = lineCharToOffset(lines, end.line, end.character)
-    if (startIdx < 0 || endIdx < startIdx) continue
-    const full = lines.join("\n")
-    const updated = full.slice(0, startIdx) + edit.newText + full.slice(endIdx)
-    lines.length = 0
-    lines.push(...updated.split("\n"))
-  }
-  return lines.join("\n")
-}
-
-function lineCharToOffset(lines: string[], line: number, character: number): number {
-  if (line < 0 || line >= lines.length) return -1
-  let offset = 0
-  for (let i = 0; i < line; i++) offset += lines[i].length + 1
-  return offset + Math.min(character, lines[line].length)
-}
-
 export async function formatFile(
   client: LspClient,
   file: string,
@@ -61,12 +35,5 @@ export async function formatFile(
   client.sendNotification("textDocument/didClose", { textDocument: { uri } })
 
   const edits: TextEdit[] = resp?.result || []
-  if (edits.length === 0) {
-    return { applied: false, file: absPath, edits: [] }
-  }
-
-  const formatted = applyTextEdits(original, edits)
-  await Bun.write(absPath, formatted)
-
-  return { applied: true, file: absPath, edits }
+  return { applied: edits.length > 0, file: absPath, edits }
 }
