@@ -125,7 +125,7 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
 
       var capabilities = defaultServerCapabilities();
       capabilities.setExperimental(buildStatus(project));
-      return new InitializeResult(capabilities);
+      return new InitializeResult(capabilities, new ServerInfo("idealsp", BuildInfo.fullVersion()));
     });
   }
 
@@ -133,6 +133,8 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
   private Map<String, Object> buildStatus(@Nullable Project p) {
     var status = new HashMap<String, Object>();
     status.put("server", "idealsp");
+    status.put("version", BuildInfo.VERSION);
+    status.put("commit", BuildInfo.COMMIT);
     if (p == null || p.isDisposed()) {
       status.put("ready", false);
       return status;
