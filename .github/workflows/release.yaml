@@ -42,6 +42,14 @@ jobs:
           arguments: :buildPlugin --no-daemon -q
           build-root-directory: server
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build xlsp CLI
+        run: |
+          cd tools/xlsp
+          bun run build:all
+
       - name: Find previous release tag
         id: previous
         run: |
@@ -64,6 +72,16 @@ jobs:
             else
               git log HEAD --pretty=format:"- %h %s" --no-merges
             fi
+            echo
+            echo "### Assets"
+            echo
+            echo "- \`idealsp-${{ steps.version.outputs.VERSION }}.jar\` — IntelliJ plugin"
+            echo "- \`idealsp-${{ steps.version.outputs.VERSION }}.zip\` — IntelliJ plugin distribution"
+            echo "- \`xlsp-linux-x64\` — xlsp CLI (Linux x64, standalone)"
+            echo "- \`xlsp-linux-arm64\` — xlsp CLI (Linux ARM64, standalone)"
+            echo "- \`xlsp-darwin-x64\` — xlsp CLI (macOS x64, standalone)"
+            echo "- \`xlsp-darwin-arm64\` — xlsp CLI (macOS ARM64, standalone)"
+            echo "- \`xlsp-windows-x64.exe\` — xlsp CLI (Windows x64, standalone)"
           } > "$NOTES"
 
       - name: Create release
@@ -79,5 +97,10 @@ jobs:
           gh release create "$TAG" \
             "server/build/distributions/idealsp-${VERSION}.zip" \
             "server/build/libs/idealsp-${VERSION}.jar" \
+            "dist/xlsp-linux-x64" \
+            "dist/xlsp-linux-arm64" \
+            "dist/xlsp-darwin-x64" \
+            "dist/xlsp-darwin-arm64" \
+            "dist/xlsp-windows-x64.exe" \
             --title "IdeaLSP ${VERSION}-g${{ steps.version.outputs.SHA }}" \
             --notes-file /tmp/release-notes.md
