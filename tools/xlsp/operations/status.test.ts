@@ -15,7 +15,7 @@ describe("xlsp status command", () => {
           return {
             result: {
               capabilities: {
-                experimental: { projectRoot: "/project", moduleCount: 2, indexingComplete: true },
+                experimental: { projectRoot: "/project", moduleCount: 2, indexingComplete: true, version: "1.0.280", commit: "81f2f62f" },
               },
             },
           }
@@ -32,6 +32,8 @@ describe("xlsp status command", () => {
       expect(meta.operation).toBe("status")
       expect(meta.serverStatus.projectRoot).toBe("/project")
       expect(meta.serverStatus.indexingComplete).toBe(true)
+      expect(meta.serverStatus.version).toBe("1.0.280")
+      expect(meta.serverStatus.commit).toBe("81f2f62f")
     } finally {
       await mock.close()
       cleanupWorkspace(ws)

@@ -8,6 +8,33 @@ plugins {
 group = "tf.locals.idealsp.server"
 version = System.getenv("IDEALSP_VERSION") ?: "1.0-SNAPSHOT"
 
+val generateBuildInfo by tasks.registering {
+    val outDir = layout.buildDirectory.dir("generated-resources")
+    inputs.property("version", project.version)
+    inputs.property("githubSha", System.getenv("GITHUB_SHA") ?: "local")
+    outputs.dir(outDir)
+    doLast {
+        val commit = System.getenv("GITHUB_SHA")?.take(8)
+            ?: runCatching {
+                ProcessBuilder("git", "rev-parse", "--short=8", "HEAD")
+                    .redirectErrorStream(true)
+                    .start().inputStream.bufferedReader().readText().trim()
+            }.getOrNull()
+            ?.ifEmpty { null }
+            ?: "unknown"
+        val dir = outDir.get().asFile
+        dir.mkdirs()
+        File(dir, "build-info.properties").writeText(
+            "version=${project.version}\ngit.commit=$commit\n"
+        )
+    }
+}
+
+sourceSets.main {
+    resources.srcDir(layout.buildDirectory.dir("generated-resources"))
+}
+tasks.named("processResources") { dependsOn(generateBuildInfo) }
+
 repositories {
     mavenCentral()
     intellijPlatform { defaultRepositories() }
