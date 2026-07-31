@@ -85,22 +85,32 @@ function countSymbols(nodes: any[]): number {
 
 function parseArgs(argv: string[]) {
   let pos = 0
-  const args: Record<string, string | boolean> = {}
+  const args: Record<string, string | boolean | string[]> = {}
   const positional: string[] = []
+
+  function addArg(key: string, value: string | boolean): void {
+    const existing = args[key]
+    if (existing === undefined) {
+      args[key] = value
+    } else if (typeof value === "string") {
+      const prev = Array.isArray(existing) ? existing : [existing as string]
+      args[key] = [...prev, value]
+    }
+  }
 
   while (pos < argv.length) {
     const arg = argv[pos]
     if (arg.startsWith("--")) {
       const eqIdx = arg.indexOf("=")
       if (eqIdx >= 0) {
-        args[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1)
+        addArg(arg.slice(2, eqIdx), arg.slice(eqIdx + 1))
       } else {
         const next = argv[pos + 1]
         if (next && !next.startsWith("-")) {
-          args[arg.slice(2)] = next
+          addArg(arg.slice(2), next)
           pos++
         } else {
-          args[arg.slice(2)] = true
+          addArg(arg.slice(2), true)
         }
       }
     } else {
@@ -212,7 +222,8 @@ async function main() {
         const tree = isFileOnly
         const kind = args.kind as string
         const visibility = args.visibility as string
-        const results = await searchSymbols(client, symbol || "", file, { kind, visibility, tree: tree as boolean })
+        const symFile = file && !file.startsWith("/") ? `${wsRoot}/${file}` : file
+        const results = await searchSymbols(client, symbol || "", symFile, { kind, visibility, tree: tree as boolean })
         if (tree && Array.isArray(results)) {
           printJson({ success: true, operation, file, count: countSymbols(results), tree: results })
         } else if (results && results.results) {
@@ -569,9 +580,10 @@ async function main() {
           const dotIdx = c.indexOf(".")
           const eqIdx = c.indexOf("=")
           if (dotIdx < 0 || eqIdx < 0) continue
-          const varName = c.slice(0, dotIdx)
+          let varName = c.slice(0, dotIdx)
           const key = c.slice(dotIdx + 1, eqIdx)
           const value = c.slice(eqIdx + 1)
+          if (varName.startsWith("$") && !varName.endsWith("$")) varName += "$"
           if (!constraints[varName]) constraints[varName] = {}
           constraints[varName][key] = value
         }
