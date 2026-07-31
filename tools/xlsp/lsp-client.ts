@@ -159,16 +159,17 @@ export class LspClient {
     return { jsonrpc: "2.0", error: { code: -1, message: "timeout" } }
   }
 
-  drainNotifications(timeoutMs: number): Promise<void> {
+  drainNotifications(timeoutMs: number, quiesceMs = 500): Promise<void> {
     return new Promise((resolve) => {
       const deadline = Date.now() + timeoutMs
       const check = async () => {
-        if (Date.now() >= deadline) {
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) {
           resolve()
           return
         }
-        const remaining = Math.max(50, deadline - Date.now())
-        const msg = await this.waitForMessage(remaining)
+        const waitMs = Math.max(50, Math.min(quiesceMs, remaining))
+        const msg = await this.waitForMessage(waitMs)
         if (!msg) {
           resolve()
           return
@@ -188,6 +189,8 @@ export class LspClient {
   }
 
   async waitForIndexing(seconds = 15): Promise<void> {
-    await new Promise(r => setTimeout(r, seconds * 1000))
+    const override = Number(process.env.XLSP_INDEX_WAIT_SECONDS)
+    const wait = Number.isFinite(override) && override >= 0 ? override : seconds
+    await new Promise(r => setTimeout(r, wait * 1000))
   }
 }

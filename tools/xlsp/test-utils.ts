@@ -116,7 +116,7 @@ export function runCli(
   return new Promise((resolve, reject) => {
     const proc = spawn("bun", ["run", "tools/xlsp/cli.ts", "--port", String(port), ...args], {
       cwd: REPO_ROOT,
-      env: { ...process.env, XLSP_PORT: String(port), PROJECT_WORKSPACE: wsRoot },
+      env: { ...process.env, XLSP_PORT: String(port), PROJECT_WORKSPACE: wsRoot, XLSP_INDEX_WAIT_SECONDS: "0.01" },
     })
     let stdout = ""
     proc.stdout.on("data", (d: string) => (stdout += d))

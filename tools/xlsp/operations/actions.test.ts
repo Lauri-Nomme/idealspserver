@@ -5,6 +5,7 @@ import {
   parseOutput,
   makeWorkspace,
   cleanupWorkspace,
+  slowTest,
   type TestWorkspace,
 } from "../test-utils"
 
