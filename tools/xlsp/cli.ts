@@ -19,6 +19,7 @@ import { listInspections, runInspection, runInspectionOnAllFiles } from "./opera
 import { renameSymbol, prepareRename } from "./operations/rename"
 import { refactor } from "./operations/refactor"
 import { getProjectStructure } from "./operations/structure"
+import { formatFile } from "./operations/format"
 
 interface Output {
   success: boolean
@@ -117,7 +118,7 @@ async function main() {
   const host = (args.host as string) || process.env.XLSP_HOST || "127.0.0.1"
 
   if (positional.length < 1) {
-    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--host IP] [--wait] [--context N] [--severity error|warn|info|hint] [--constraint $Var.key=val] [--lang java] [--scope project|file]"))
+    printJson(fail("help", "Usage: xlsp <operation> [symbol] [in <file>] [--port N] [--host IP] [--wait] [--context N] [--severity error|warn|info|hint] [--constraint $Var.key=val] [--lang java] [--scope project|file] [--pos=line:col[-endLine:endCol]]"))
     process.exit(1)
   }
 
@@ -468,6 +469,48 @@ async function main() {
         break
       }
 
+      case "format":
+      case "fmt": {
+        if (!file && !symbol) { printJson(fail(operation, "file required", "Usage: xlsp format <file> [--pos=line:col[-endLine:endCol]]")); return }
+        const targetFile = file || symbol
+        let range: { start: { line: number; character: number }; end: { line: number; character: number } } | undefined
+        const posArg = args.pos as string | undefined
+        if (posArg) {
+          const rangeMatch = posArg.match(/^(\d+):(\d+)-(\d+):(\d+)$/)
+          if (rangeMatch) {
+            range = {
+              start: { line: parseInt(rangeMatch[1]), character: parseInt(rangeMatch[2]) },
+              end: { line: parseInt(rangeMatch[3]), character: parseInt(rangeMatch[4]) },
+            }
+          } else {
+            const singleMatch = posArg.match(/^(\d+):(\d+)$/)
+            if (singleMatch) {
+              range = {
+                start: { line: parseInt(singleMatch[1]), character: parseInt(singleMatch[2]) },
+                end: { line: parseInt(singleMatch[1]), character: parseInt(singleMatch[2]) },
+              }
+            }
+          }
+        }
+        const result = await formatFile(client, targetFile, wsRoot, range)
+        printJson({
+          success: true,
+          operation,
+          query: range ? `range ${posArg}` : "full file",
+          file: result.file,
+          applied: result.applied,
+          count: result.edits.length,
+          results: result.edits.map((e) => ({
+            line: e.range.start.line,
+            character: e.range.start.character,
+            endLine: e.range.end.line,
+            endCharacter: e.range.end.character,
+            newText: e.newText,
+          })),
+        })
+        break
+      }
+
       case "structure":
       case "struct": {
         const result = await getProjectStructure(client)
@@ -567,7 +610,7 @@ async function main() {
       }
 
       default:
-        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, apply, rename, prepare-rename, refactor, calls, dataflow, inspect-list, inspect, inspect-all, semantic"))
+        printJson(fail(operation, `Unknown operation: ${operation}`, "Supported: status, define, references, hover, complete, symbols, diagnostics, implement, type-def, signature, actions, apply, rename, prepare-rename, refactor, calls, dataflow, inspect-list, inspect, inspect-all, semantic, format"))
     }
 
     client.sendNotification("shutdown", {})
