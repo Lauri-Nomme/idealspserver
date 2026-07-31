@@ -64,6 +64,7 @@ export function startMockServer(config?: {
           } else {
             send(socket, { jsonrpc: "2.0", id: body.id, result })
           }
+          send(socket, { jsonrpc: "2.0", method: "idea/indexFinished", params: {} })
         } else if (body.id !== undefined && body.method) {
           requests.push({ method: body.method, params: body.params, id: body.id })
           const resp = config?.requestHandler?.(body.method, body.params, body.id)
