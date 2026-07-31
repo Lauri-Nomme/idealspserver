@@ -18,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Compute version
         id: version
@@ -52,6 +53,8 @@ jobs:
 
       - name: Find previous release tag
         id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           PREV=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
           if [ -n "$PREV" ]; then
