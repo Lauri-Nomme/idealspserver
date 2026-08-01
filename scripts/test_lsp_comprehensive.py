@@ -2,6 +2,9 @@
 """
 Test script for IdeaLSP server - comprehensive version.
 
+Each test is a separate method; tests are individually skippable via
+--test/--tests/--from/--skip.
+
 Usage:
   python3 test_lsp_comprehensive.py              # Run all tests
   python3 test_lsp_comprehensive.py --test 39     # Run single test
@@ -13,6 +16,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import socket
 import sys
 import time
@@ -22,6 +26,60 @@ PROJECT_ROOT = os.environ.get("PROJECT_WORKSPACE", "/vokk/home/lauri/dev/idealsp
 # Source root for file paths (src/main/java)
 SOURCE_PATH = os.path.join(PROJECT_ROOT, "server/src/main/java")
 
+LSP_SERVER_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
+BOOTSTRAP_PATH = f"{SOURCE_PATH}/tf/locals/idealsp/server/bootstrap"
+LSP_RUNNER_FILE = f"{BOOTSTRAP_PATH}/LspServerRunnerBase.java"
+TEST_CALLS_FILE = os.path.join(PROJECT_ROOT, "server/test-data/callhierarchy/TestCalls.java")
+TYPE_HIERARCHY_FILE = os.path.join(PROJECT_ROOT, "server/test-data/typehierarchy/TypeHierarchyTest.java")
+DATAFLOW_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/DataFlowTestTarget.java"
+
+REFACTOR_TEST_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/RefactorTest.java"
+REFACTOR_SNIPPET = (
+    "public class RefactorTest {\n"
+    "    void test() {\n"
+    "        int a = 1;\n"
+    "        int b = 2;\n"
+    "        int c = a + b;\n"
+    "        String s = \"hello\";\n"
+    "    }\n"
+    "}\n"
+)
+
+MOVE_TEST_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/MoveMe.java"
+MOVE_TARGET_DIR = f"{SOURCE_PATH}/tf/locals/idealsp/server/movedest"
+MOVE_SNIPPET = (
+    "package tf.locals.idealsp.server;\n"
+    "public class MoveMe {\n"
+    "    public void sayHello() {\n"
+    "        System.out.println(\"hello\");\n"
+    "    }\n"
+    "}\n"
+)
+
+SAFEDELETE_TEST_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/DeleteMe.java"
+SAFEDELETE_SNIPPET = (
+    "package tf.locals.idealsp.server;\n"
+    "public class DeleteMe {\n"
+    "    private int keep;\n"
+    "    public void usedMethod() {\n"
+    "        System.out.println(\"used\");\n"
+    "    }\n"
+    "    public void unusedMethod() {\n"
+    "        int x = 1;\n"
+    "    }\n"
+    "}\n"
+)
+
+APPLY_TEST_FILE = f"{SOURCE_PATH}/tf/locals/idealsp/server/ApplyTest.java"
+APPLY_SNIPPET = (
+    "package tf.locals.idealsp.server;\n"
+    "public class ApplyTest {\n"
+    "    public static void f() {\n"
+    "        int a = \"\";\n"
+    "        System.out.println();\n"
+    "    }\n"
+    "}\n"
+)
 
 # Track diagnostics and code actions responses
 diagnostics_result = {}
@@ -85,7 +143,7 @@ def recv_response(sock, expected_id):
         if resp.get("method") == "textDocument/publishDiagnostics":
             diagnostics_result["data"] = resp.get("params", {})
 
-        # Buffer idea/indexFinished so the test's wait loop can find it
+        # Buffer idea/indexFinished so the wait loop can find it
         if resp.get("method") == "idea/indexFinished":
             notification_buffer.append(resp)
 
@@ -198,6 +256,7 @@ def parse_test_args():
     parser.add_argument("--skip", type=str, help="Comma-separated list of test numbers to skip")
     return parser.parse_args()
 
+
 TEST_ARGS = parse_test_args()
 
 def should_run(test_num):
@@ -209,109 +268,150 @@ def should_run(test_num):
     if TEST_ARGS.from_num is not None:
         return test_num >= TEST_ARGS.from_num
     if TEST_ARGS.skip is not None:
-        skipped = [int(t.strip()) for t in TEST_ARGS.skip.split(",")]
-        return test_num not in skipped
+        skipped_nums = [int(t.strip()) for t in TEST_ARGS.skip.split(",")]
+        return test_num not in skipped_nums
     return True
 
-def skip_test(sock, test_num, test_name):
+
+def skip_test(test_num, test_name):
     print(f"{test_num}. {test_name}: SKIPPED")
     record_result(test_num, test_name, "SKIP")
 
-def test_all():
-    notification_buffer.clear()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(90)
-    sock.connect(("127.0.0.1", 8989))
-    print("Connected to LSP server")
 
-    # Initialize
-    resp = send_and_recv(
-        sock,
-        "initialize",
-        {
-            "processId": 12345,
-            "clientInfo": {"name": "test", "version": "1.0"},
-            "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}],
-            "capabilities": {},
-        },
-        1,
-    )
-    print(f"\n1. Initialize: {'OK' if resp and 'result' in resp else 'FAILED'}")
-    record_result(1, "Initialize", "PASS" if resp and "result" in resp else "FAIL")
+class ComprehensiveTestSuite:
+    """One method per test; every test is independently skippable."""
 
-    send_notification(sock, "initialized", {})
+    def __init__(self):
+        self.sock = None
+        self.sock2 = None
+        self.opened = set()
+        self.file_texts = {}
+        self.index_ready = False
 
-    # Open file
-    test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-    with open(test_file) as f:
-        text = f.read()
+    # ------------------------------------------------------------------
+    # Shared plumbing
+    # ------------------------------------------------------------------
 
-    send_notification(
-        sock,
-        "textDocument/didOpen",
-        {
-            "textDocument": {
-                "uri": f"file://{test_file}",
-                "languageId": "java",
-                "version": 1,
-                "text": text,
-            }
-        },
-    )
-    print("2. Opened test file, waiting for indexing and source root stabilization...")
-    # Wait for idea/indexFinished notification (or timeout after 120s)
-    index_ready = False
-    deadline = time.time() + 120
-    while time.time() < deadline:
-        # Check if indexFinished was already buffered by recv_response
-        while notification_buffer:
-            notif = notification_buffer.pop(0)
-            if notif.get("method") == "idea/indexFinished":
-                print("    Received idea/indexFinished notification (from buffer)")
-                index_ready = True
-                break
-        if index_ready:
-            break
-        msg = recv_message(sock, timeout=min(10, deadline - time.time()))
-        if msg is None:
-            continue
-        if msg.get("method") == "textDocument/publishDiagnostics":
-            diagnostics_result["data"] = msg.get("params", {})
-        if msg.get("method") == "idea/indexFinished":
-            print("    Received idea/indexFinished notification")
-            index_ready = True
-            break
-        if msg.get("method") == "idea/indexStarted":
-            print("    Received idea/indexStarted notification, waiting for finish...")
-            continue
-        # Respond to server-to-client requests
-        if "id" in msg and "method" in msg:
-            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": None}
-            content = json.dumps(reply)
-            sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
-    if not index_ready:
-        print("    WARNING: indexing did not complete within 120s, proceeding anyway")
-    # Drain any remaining notifications
-    drain_notifications(sock, seconds=5)
+    def connect(self):
+        if self.sock is not None:
+            return self.sock
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(90)
+        sock.connect(("127.0.0.1", 8989))
+        print("Connected to LSP server")
+        self.sock = sock
+        return sock
 
-    # Check if didOpen already produced diagnostics
-    if diagnostics_result.get("data"):
-        diags = diagnostics_result["data"].get("diagnostics", [])
-        print(f"    (didOpen produced {len(diags)} diagnostics)")
-        record_result(2, "didOpen diagnostics", "PASS", f"{len(diags)} diags")
-    else:
-        print(f"    (no diagnostics from didOpen)")
-        record_result(2, "didOpen diagnostics", "PASS", "no diags")
-
-    _skip_main = not any(should_run(i) for i in range(1, 52))
-    if not _skip_main:
-        # Test document symbols
+    def initialize(self):
+        self.connect()
+        if self.index_ready:
+            return True
         resp = send_and_recv(
-            sock,
-            "textDocument/documentSymbol",
-            {"textDocument": {"uri": f"file://{test_file}"}},
-            2,
+            self.sock,
+            "initialize",
+            {
+                "processId": 12345,
+                "clientInfo": {"name": "test", "version": "1.0"},
+                "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}],
+                "capabilities": {},
+            },
+            1,
         )
+        self.init_resp = resp
+        send_notification(self.sock, "initialized", {})
+        return resp and "result" in resp
+
+    def ensure_open(self, path, version=1, force=False, language="java"):
+        uri = f"file://{path}"
+        if not force and uri in self.opened:
+            return
+        with open(path) as f:
+            text = f.read()
+        self.file_texts[path] = text
+        send_notification(self.sock, "textDocument/didOpen", {
+            "textDocument": {"uri": uri, "languageId": language, "version": version, "text": text}
+        })
+        self.opened.add(uri)
+
+    def close_open(self, path):
+        send_notification(self.sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{path}"}})
+        self.opened.discard(f"file://{path}")
+
+    def wait_index(self, timeout=120):
+        if self.index_ready:
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            while notification_buffer:
+                notif = notification_buffer.pop(0)
+                if notif.get("method") == "idea/indexFinished":
+                    print("    Received idea/indexFinished notification (from buffer)")
+                    self.index_ready = True
+                    break
+            if self.index_ready:
+                break
+            msg = recv_message(self.sock, timeout=min(10, deadline - time.time()))
+            if msg is None:
+                continue
+            if msg.get("method") == "textDocument/publishDiagnostics":
+                diagnostics_result["data"] = msg.get("params", {})
+            if msg.get("method") == "idea/indexFinished":
+                print("    Received idea/indexFinished notification")
+                self.index_ready = True
+                break
+            if msg.get("method") == "idea/indexStarted":
+                print("    Received idea/indexStarted notification, waiting for finish...")
+                continue
+            if "id" in msg and "method" in msg:
+                reply = {"jsonrpc": "2.0", "id": msg["id"], "result": None}
+                content = json.dumps(reply)
+                self.sock.send(f"Content-Length: {len(content)}\r\n\r\n{content}".encode())
+        if not self.index_ready:
+            print("    WARNING: indexing did not complete within 120s, proceeding anyway")
+            self.index_ready = True
+        drain_notifications(self.sock, seconds=5)
+
+    def resync(self, timeout=15):
+        resync_socket(self.sock, timeout)
+
+    def request(self, method, params, req_id):
+        return send_and_recv(self.sock, method, params, req_id)
+
+    # ------------------------------------------------------------------
+    # Test 1: Initialize
+    # ------------------------------------------------------------------
+
+    def test_01_initialize(self):
+        ok = self.initialize()
+        print(f"\n1. Initialize: {'OK' if ok else 'FAILED'}")
+        record_result(1, "Initialize", "PASS" if ok else "FAIL")
+
+    # ------------------------------------------------------------------
+    # Test 2: didOpen + indexing
+    # ------------------------------------------------------------------
+
+    def test_02_didopen(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        print("2. Opened test file, waiting for indexing and source root stabilization...")
+        self.wait_index()
+        if diagnostics_result.get("data"):
+            diags = diagnostics_result["data"].get("diagnostics", [])
+            print(f"    (didOpen produced {len(diags)} diagnostics)")
+            record_result(2, "didOpen diagnostics", "PASS", f"{len(diags)} diags")
+        else:
+            print(f"    (no diagnostics from didOpen)")
+            record_result(2, "didOpen diagnostics", "PASS", "no diags")
+
+    # ------------------------------------------------------------------
+    # Tests 3-13: textDocument basics on LspServer.java
+    # ------------------------------------------------------------------
+
+    def test_03_document_symbols(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request("textDocument/documentSymbol", {"textDocument": {"uri": f"file://{LSP_SERVER_FILE}"}}, 2)
         if resp and "result" in resp and resp["result"]:
             symbols = resp["result"]
             print(f"3. Document symbols: OK - Found {len(symbols)} symbols")
@@ -324,13 +424,15 @@ def test_all():
         else:
             print(f"3. Document symbols: FAILED - {resp}")
             record_result(3, "Document symbols", "FAIL")
-    
-        # Test definition - line 54 (0-indexed) has "MyTextDocumentService" type reference
-        resp = send_and_recv(
-            sock,
+
+    def test_04_definition(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/definition",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 54, "character": 28},
             },
             3,
@@ -357,13 +459,15 @@ def test_all():
                     if resp.get("error"):
                         print(f"    error: {resp['error']}")
                 record_result(4, "Definition", "FAIL")
-    
-        # Test references - find references to LspServer class at line 52 (class declaration)
-        resp = send_and_recv(
-            sock,
+
+    def test_05_references(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/references",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 52, "character": 13},
                 "context": {"includeDeclaration": True},
             },
@@ -375,9 +479,12 @@ def test_all():
         else:
             print(f"5. References: FAILED or no result")
             record_result(5, "References", "FAIL")
-    
-        # Test workspace symbols
-        resp = send_and_recv(sock, "workspace/symbol", {"query": "Lsp"}, 5)
+
+    def test_06_workspace_symbols(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request("workspace/symbol", {"query": "Lsp"}, 5)
         if resp and "result" in resp and resp["result"]:
             print(f"6. Workspace symbols: OK - Found {len(resp['result'])} symbols")
             for s in resp["result"][:3]:
@@ -386,13 +493,15 @@ def test_all():
         else:
             print(f"6. Workspace symbols: FAILED or no result")
             record_result(6, "Workspace symbols", "FAIL")
-    
-        # Test completion - line 50 is empty line inside class body (good for keyword completions)
-        resp = send_and_recv(
-            sock,
+
+    def test_07_completion(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/completion",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 50, "character": 0},
             },
             6,
@@ -408,13 +517,15 @@ def test_all():
         else:
             print(f"7. Completion: FAILED")
             record_result(7, "Completion", "FAIL")
-    
-        # Test hover - line 54 (0-indexed) has MyTextDocumentService type reference
-        resp = send_and_recv(
-            sock,
+
+    def test_08_hover(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/hover",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 54, "character": 28},
             },
             7,
@@ -425,14 +536,15 @@ def test_all():
         else:
             print(f"8. Hover: not supported or failed")
             record_result(8, "Hover", "FAIL")
-    
-        # Test type definition - line 54 (0-indexed) has "myTextDocumentService" variable
-        # Type definition should navigate to MyTextDocumentService class
-        resp = send_and_recv(
-            sock,
+
+    def test_09_type_definition(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/typeDefinition",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 54, "character": 44},
             },
             8,
@@ -458,14 +570,15 @@ def test_all():
                 if resp:
                     print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
                 record_result(9, "Type definition", "FAIL")
-    
-        # Test implementation - line 52 (0-indexed) has LspSession interface reference
-        # Should find implementing classes
-        resp = send_and_recv(
-            sock,
+
+    def test_10_implementation(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/implementation",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 52, "character": 70},
             },
             9,
@@ -488,21 +601,21 @@ def test_all():
                 if resp:
                     print(f"    raw: {json.dumps(resp.get('result'))[:200]}")
                 record_result(10, "Implementation", "FAIL")
-    
-        # Test document highlight - line 53 (0-indexed) has "LOG"
-        # LOG is used multiple times in the file
-        # Use a shorter socket timeout to avoid hanging if the server doesn't respond
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+
+    def test_11_document_highlight(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/documentHighlight",
             {
-                "textDocument": {"uri": f"file://{test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 53, "character": 30},
             },
             10,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         if resp and "result" in resp and resp["result"]:
             print(f"11. Document highlight: OK - Found {len(resp['result'])} highlights")
             record_result(11, "Document highlight", "PASS", f"{len(resp['result'])} highlights")
@@ -514,23 +627,21 @@ def test_all():
             else:
                 print(f"11. Document highlight: no results (error={err})")
                 record_result(11, "Document highlight", "KNOWN", "returns None - may need full indexing")
-    
-        # Test diagnostics on existing file - use LspServer.java which we know exists
-        error_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-    
-        # Send didChange to introduce an error - change an int to String
+
+    def test_12_diagnostics(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
         send_notification(
-            sock,
+            self.sock,
             "textDocument/didChange",
             {
-                "textDocument": {"uri": f"file://{error_test_file}", "version": 2},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}", "version": 2},
                 "contentChanges": [{"text": " String x = 123;  // Type mismatch error\n"}],
             },
         )
         print("    Sent change to LspServer.java to introduce error...")
-        drain_notifications(sock, seconds=8)
-    
-        # Check if diagnostics were received (from either didOpen or didChange)
+        drain_notifications(self.sock, seconds=8)
         if diagnostics_result.get("data"):
             diags = diagnostics_result["data"].get("diagnostics", [])
             if diags:
@@ -546,43 +657,27 @@ def test_all():
         else:
             print(f"12. Diagnostics: No diagnostics received")
             record_result(12, "Diagnostics", "FAIL")
-    
-        # Restore original file content so code actions work on a proper file
+        text = self.file_texts.get(LSP_SERVER_FILE, "")
         send_notification(
-            sock,
+            self.sock,
             "textDocument/didChange",
             {
-                "textDocument": {"uri": f"file://{error_test_file}", "version": 3},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}", "version": 3},
                 "contentChanges": [{"text": text}],
             },
         )
-        drain_notifications(sock, seconds=8)
-    
-        # Test code actions - organize imports on a clean file (no error needed)
-        org_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        with open(org_test_file) as f:
-            org_text = f.read()
-    
-        send_notification(
-            sock,
-            "textDocument/didOpen",
-            {
-                "textDocument": {
-                    "uri": f"file://{org_test_file}",
-                    "languageId": "java",
-                    "version": 1,
-                    "text": org_text,
-                }
-            },
-        )
+        drain_notifications(self.sock, seconds=8)
+
+    def test_13_code_actions_organize(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True)
+        self.wait_index()
         print("    Waiting extra 3 seconds for indexing...")
-        drain_notifications(sock, seconds=3)
-    
-        resp = send_and_recv(
-            sock,
+        drain_notifications(self.sock, seconds=3)
+        resp = self.request(
             "textDocument/codeAction",
             {
-                "textDocument": {"uri": f"file://{org_test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "range": {"start": {"line": 0, "character": 0}, "end": {"line": 100, "character": 0}},
                 "context": {"diagnostics": []}
             },
@@ -596,7 +691,7 @@ def test_all():
                     title = a.get("title", "unknown")
                     print(f"    - {title[:60]}")
                     if a.get("data"):
-                        resolved = send_and_recv(sock, "codeAction/resolve", a, 14)
+                        resolved = self.request("codeAction/resolve", a, 14)
                         if resolved and "result" in resolved:
                             print(f"      Resolved title: {resolved['result'].get('title', 'N/A')[:60]}")
                 record_result(13, "Code Actions", "PASS", f"{len(actions)} actions")
@@ -606,160 +701,156 @@ def test_all():
         else:
             print(f"13. Code Actions (organize imports): Skipped")
             record_result(13, "Code Actions", "SKIP")
-    
-        # ============================================
-        # Call Hierarchy Tests (prepareCallHierarchy)
-        # ============================================
-        # Setup: Open the test-data file which has callers inside same file
-        # getName() is called by process() inside test-data
-        test_calls_file = os.path.join(PROJECT_ROOT, "server/test-data/callhierarchy/TestCalls.java")
-        try:
-            with open(test_calls_file) as f:
-                test_calls_text = f.read()
-        except FileNotFoundError:
-            print("TEST_DATA_NOT_FOUND: test-data/callhierarchy/TestCalls.java")
-            test_calls_text = None
-    
-        if test_calls_text:
-            send_notification(
-                sock,
-                "textDocument/didOpen",
-                {
-                    "textDocument": {
-                        "uri": f"file://{test_calls_file}",
-                        "languageId": "java",
-                        "version": 1,
-                        "text": test_calls_text,
-                    }
-                },
-            )
-            drain_notifications(sock, seconds=5)
-    
-            # Test 14: prepareCallHierarchy on getName() method (line 10, char 17)
-            resp = send_and_recv(
-                sock,
-                "textDocument/prepareCallHierarchy",
-                {
-                    "textDocument": {"uri": f"file://{test_calls_file}"},
-                    "position": {"line": 10, "character": 17},
-                },
-                14,
-            )
-            if resp and "result" in resp and resp["result"]:
-                items = resp["result"]
-                if len(items) >= 1 and any(i.get("name") == "getName" for i in items):
-                    print(f"14. PrepareCallHierarchy on getName(): OK - Got {[i.get('name') for i in items]}")
-                    record_result(14, "PrepareCallHierarchy getName", "PASS", str([i.get('name') for i in items]))
-                else:
-                    print(f"14. PrepareCallHierarchy: FAILED - Expected 'getName', got {[i.get('name') for i in items]}")
-                    record_result(14, "PrepareCallHierarchy getName", "FAIL", str([i.get('name') for i in items]))
-            else:
-                print(f"14. PrepareCallHierarchy: FAILED or no result - {resp}")
-                record_result(14, "PrepareCallHierarchy getName", "FAIL")
-    
-            # Store for subsequent tests
-            getname_item = None
-            if resp and "result" in resp and resp["result"]:
-                getname_item = resp["result"][0]
-    
-            # Test 15: incomingCalls to getName() - should find process() as caller
-            if getname_item:
-                resp = send_and_recv(
-                    sock,
-                    "callHierarchy/incomingCalls",
-                    {"item": getname_item},
-                    15,
-                )
-                if resp and "result" in resp and resp["result"]:
-                    calls = resp["result"]
-                    incoming_names = sorted([c["from"]["name"] for c in calls])
-                    expected = ["process"]
-                    if all(name in incoming_names for name in expected):
-                        print(f"15. IncomingCalls to getName(): OK - Got {incoming_names}")
-                        record_result(15, "IncomingCalls getName", "PASS", str(incoming_names))
-                    else:
-                        print(f"15. IncomingCalls: FAILED - Expected {expected}, got {incoming_names}")
-                        record_result(15, "IncomingCalls getName", "FAIL", str(incoming_names))
-                else:
-                    print(f"15. IncomingCalls: FAILED or no result - {resp}")
-                    record_result(15, "IncomingCalls getName", "FAIL")
-    
-            # Test 17: prepareCallHierarchy on process() method (line 17, char 17)
-            resp = send_and_recv(
-                sock,
-                "textDocument/prepareCallHierarchy",
-                {
-                    "textDocument": {"uri": f"file://{test_calls_file}"},
-                    "position": {"line": 17, "character": 17},
-                },
-                17,
-            )
-            if resp and "result" in resp and resp["result"]:
-                items = resp["result"]
-                if len(items) == 1 and items[0]["name"] == "process":
-                    print(f"17. PrepareCallHierarchy on process(): OK - Got '{items[0]['name']}'")
-                    record_result(17, "PrepareCallHierarchy process", "PASS")
-                else:
-                    print(f"17. PrepareCallHierarchy: FAILED - Expected 'process', got {[i.get('name') for i in items]}")
-                    record_result(17, "PrepareCallHierarchy process", "FAIL", str([i.get('name') for i in items]))
-            else:
-                print(f"17. PrepareCallHierarchy: FAILED or no result - {resp}")
-                record_result(17, "PrepareCallHierarchy process", "FAIL")
-    
-            process_item = None
-            if resp and "result" in resp and resp["result"]:
-                process_item = resp["result"][0]
-    
-            # Test 18: outgoingCalls from process() - should find getName(), printName(), TestCalls constructor
-            if process_item:
-                resp = send_and_recv(
-                    sock,
-                    "callHierarchy/outgoingCalls",
-                    {"item": process_item},
-                    18,
-                )
-                if resp and "result" in resp and resp["result"]:
-                    calls = resp["result"]
-                    outgoing_names = sorted([c["to"]["name"] for c in calls])
-                    if "getName" in outgoing_names and "printName" in outgoing_names:
-                        print(f"18. OutgoingCalls from process(): OK - Got {outgoing_names}")
-                        record_result(18, "OutgoingCalls process", "PASS", str(outgoing_names))
-                    else:
-                        print(f"18. OutgoingCalls: FAILED - Expected getName/printName, got {outgoing_names}")
-                        record_result(18, "OutgoingCalls process", "FAIL", str(outgoing_names))
-                else:
-                    print(f"18. OutgoingCalls: FAILED or no result - {resp}")
-                    record_result(18, "OutgoingCalls process", "FAIL")
-    
-            # Test 19: incomingCalls to process() - should find main()
-            if process_item:
-                resp = send_and_recv(
-                    sock,
-                    "callHierarchy/incomingCalls",
-                    {"item": process_item},
-                    19,
-                )
-                if resp and "result" in resp and resp["result"]:
-                    calls = resp["result"]
-                    incoming_names = sorted([c["from"]["name"] for c in calls])
-                    if "main" in incoming_names:
-                        print(f"19. IncomingCalls to process(): OK - Got {incoming_names}")
-                        record_result(19, "IncomingCalls process", "PASS", str(incoming_names))
-                    else:
-                        print(f"19. IncomingCalls: FAILED - Expected 'main', got {incoming_names}")
-                        record_result(19, "IncomingCalls process", "FAIL", str(incoming_names))
-                else:
-                    print(f"19. IncomingCalls: FAILED or no result - {resp}")
-                    record_result(19, "IncomingCalls process", "FAIL")
-    
-        # Test 20: prepareCallHierarchy on non-callable (a field declaration)
-        # IntelliJ's API may return the containing class constructor for field positions
-        resp = send_and_recv(
-            sock,
+
+    # ------------------------------------------------------------------
+    # Tests 14-20: Call hierarchy (TestCalls.java)
+    # ------------------------------------------------------------------
+
+    def _ensure_calls(self):
+        self.initialize()
+        self.ensure_open(TEST_CALLS_FILE)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=5)
+
+    def test_14_prepare_call_getname(self):
+        self._ensure_calls()
+        resp = self.request(
             "textDocument/prepareCallHierarchy",
             {
-                "textDocument": {"uri": f"file://{test_calls_file}"},
-                "position": {"line": 4, "character": 20},  # 'name' field
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 10, "character": 17},
+            },
+            14,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            if len(items) >= 1 and any(i.get("name") == "getName" for i in items):
+                print(f"14. PrepareCallHierarchy on getName(): OK - Got {[i.get('name') for i in items]}")
+                record_result(14, "PrepareCallHierarchy getName", "PASS", str([i.get('name') for i in items]))
+            else:
+                print(f"14. PrepareCallHierarchy: FAILED - Expected 'getName', got {[i.get('name') for i in items]}")
+                record_result(14, "PrepareCallHierarchy getName", "FAIL", str([i.get('name') for i in items]))
+        else:
+            print(f"14. PrepareCallHierarchy: FAILED or no result - {resp}")
+            record_result(14, "PrepareCallHierarchy getName", "FAIL")
+
+    def test_15_incoming_getname(self):
+        self._ensure_calls()
+        resp = self.request(
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 10, "character": 17},
+            },
+            14,
+        )
+        getname_item = resp["result"][0] if resp and "result" in resp and resp["result"] else None
+        if getname_item:
+            resp = self.request("callHierarchy/incomingCalls", {"item": getname_item}, 15)
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                incoming_names = sorted([c["from"]["name"] for c in calls])
+                expected = ["process"]
+                if all(name in incoming_names for name in expected):
+                    print(f"15. IncomingCalls to getName(): OK - Got {incoming_names}")
+                    record_result(15, "IncomingCalls getName", "PASS", str(incoming_names))
+                else:
+                    print(f"15. IncomingCalls: FAILED - Expected {expected}, got {incoming_names}")
+                    record_result(15, "IncomingCalls getName", "FAIL", str(incoming_names))
+            else:
+                print(f"15. IncomingCalls: FAILED or no result - {resp}")
+                record_result(15, "IncomingCalls getName", "FAIL")
+        else:
+            print(f"15. IncomingCalls: SKIPPED - prepare returned no item")
+            record_result(15, "IncomingCalls getName", "SKIP")
+
+    def test_17_prepare_call_process(self):
+        self._ensure_calls()
+        resp = self.request(
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 17, "character": 17},
+            },
+            17,
+        )
+        if resp and "result" in resp and resp["result"]:
+            items = resp["result"]
+            if len(items) == 1 and items[0]["name"] == "process":
+                print(f"17. PrepareCallHierarchy on process(): OK - Got '{items[0]['name']}'")
+                record_result(17, "PrepareCallHierarchy process", "PASS")
+            else:
+                print(f"17. PrepareCallHierarchy: FAILED - Expected 'process', got {[i.get('name') for i in items]}")
+                record_result(17, "PrepareCallHierarchy process", "FAIL", str([i.get('name') for i in items]))
+        else:
+            print(f"17. PrepareCallHierarchy: FAILED or no result - {resp}")
+            record_result(17, "PrepareCallHierarchy process", "FAIL")
+
+    def test_18_outgoing_process(self):
+        self._ensure_calls()
+        resp = self.request(
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 17, "character": 17},
+            },
+            17,
+        )
+        process_item = resp["result"][0] if resp and "result" in resp and resp["result"] else None
+        if process_item:
+            resp = self.request("callHierarchy/outgoingCalls", {"item": process_item}, 18)
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                outgoing_names = sorted([c["to"]["name"] for c in calls])
+                if "getName" in outgoing_names and "printName" in outgoing_names:
+                    print(f"18. OutgoingCalls from process(): OK - Got {outgoing_names}")
+                    record_result(18, "OutgoingCalls process", "PASS", str(outgoing_names))
+                else:
+                    print(f"18. OutgoingCalls: FAILED - Expected getName/printName, got {outgoing_names}")
+                    record_result(18, "OutgoingCalls process", "FAIL", str(outgoing_names))
+            else:
+                print(f"18. OutgoingCalls: FAILED or no result - {resp}")
+                record_result(18, "OutgoingCalls process", "FAIL")
+        else:
+            print(f"18. OutgoingCalls: SKIPPED - prepare returned no item")
+            record_result(18, "OutgoingCalls process", "SKIP")
+
+    def test_19_incoming_process(self):
+        self._ensure_calls()
+        resp = self.request(
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 17, "character": 17},
+            },
+            17,
+        )
+        process_item = resp["result"][0] if resp and "result" in resp and resp["result"] else None
+        if process_item:
+            resp = self.request("callHierarchy/incomingCalls", {"item": process_item}, 19)
+            if resp and "result" in resp and resp["result"]:
+                calls = resp["result"]
+                incoming_names = sorted([c["from"]["name"] for c in calls])
+                if "main" in incoming_names:
+                    print(f"19. IncomingCalls to process(): OK - Got {incoming_names}")
+                    record_result(19, "IncomingCalls process", "PASS", str(incoming_names))
+                else:
+                    print(f"19. IncomingCalls: FAILED - Expected 'main', got {incoming_names}")
+                    record_result(19, "IncomingCalls process", "FAIL", str(incoming_names))
+            else:
+                print(f"19. IncomingCalls: FAILED or no result - {resp}")
+                record_result(19, "IncomingCalls process", "FAIL")
+        else:
+            print(f"19. IncomingCalls: SKIPPED - prepare returned no item")
+            record_result(19, "IncomingCalls process", "SKIP")
+
+    def test_20_prepare_call_field(self):
+        self._ensure_calls()
+        resp = self.request(
+            "textDocument/prepareCallHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TEST_CALLS_FILE}"},
+                "position": {"line": 4, "character": 20},
             },
             20,
         )
@@ -775,48 +866,23 @@ def test_all():
         else:
             print(f"20. PrepareCallHierarchy on field: FAILED - {resp}")
             record_result(20, "PrepareCallHierarchy field", "FAIL")
-    
-            # Cleanup: close test file
-            send_notification(
-                sock,
-                "textDocument/didClose",
-                {"textDocument": {"uri": f"file://{test_calls_file}"}},
-            )
-    
-        # Test cross-file references
-        # Use clean Java files from main source - LspServer is referenced from LspServerRunnerBase
-        bootstrap_path = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/bootstrap")
-        lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
-    
-        # Open LspServerRunnerBase.java which references LspServer
-        with open(lsp_runner_file) as f:
-            runner_text = f.read()
-        send_notification(
-            sock,
-            "textDocument/didOpen",
-            {
-                "textDocument": {
-                    "uri": f"file://{lsp_runner_file}",
-                    "languageId": "java",
-                    "version": 1,
-                    "text": runner_text,
-                }
-            },
-        )
+
+    # ------------------------------------------------------------------
+    # Test 16: Cross-file references
+    # ------------------------------------------------------------------
+
+    def test_16_cross_file_refs(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.ensure_open(LSP_RUNNER_FILE)
+        self.wait_index()
         print("    Waiting extra 15 seconds for cross-file indexing...")
-        drain_notifications(sock, seconds=15)
-    
-        # Find references to LspServer class - should find usages in LspServerRunnerBase.java
-        resp = send_and_recv(
-            sock,
+        drain_notifications(self.sock, seconds=15)
+        resp = self.request(
             "textDocument/references",
             {
-                "textDocument": {"uri": f"file://{lsp_server_file}"},
-                "position": {
-                    "line": 52,
-                    "character": 13,
-                },  # "L" of "LspServer" in "public class LspServer" (LSP lines 0-indexed)
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
+                "position": {"line": 52, "character": 13},
                 "context": {"includeDeclaration": True},
             },
             13,
@@ -825,43 +891,34 @@ def test_all():
             refs = resp["result"]
             cross_file = any("LspServerRunnerBase" in str(r.get("uri", "")) for r in refs)
             same_file = any("LspServer.java" in str(r.get("uri", "")) for r in refs)
-            print(f"15b. Cross-file References: OK - Found {len(refs)} references")
+            print(f"16. Cross-file References: OK - Found {len(refs)} references")
             print(f"    - Same file: {same_file}, Cross-file: {cross_file}")
             if cross_file:
-                record_result(15, "Cross-file references", "PASS", f"{len(refs)} refs, cross-file={cross_file}")
+                record_result(16, "Cross-file references", "PASS", f"{len(refs)} refs, cross-file={cross_file}")
             else:
                 print(f"    WARNING: Cross-file references not working - known limitation")
-                record_result(15, "Cross-file references", "KNOWN", "all refs are same-file")
+                record_result(16, "Cross-file references", "KNOWN", "all refs are same-file")
         else:
-            print(f"15b. Cross-file References: FAILED or no result")
-            record_result(15, "Cross-file references", "FAIL")
-    
-    # Test dataflow using DataFlowTestTarget.java (rich data flow chains)
-        dataflow_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/DataFlowTestTarget.java"
-        with open(dataflow_file) as f:
-            dataflow_text = f.read()
-        send_notification(
-            sock,
-            "textDocument/didOpen",
-            {
-                "textDocument": {
-                    "uri": f"file://{dataflow_file}",
-                    "languageId": "java",
-                    "version": 1,
-                    "text": dataflow_text,
-                }
-            },
-        )
+            print(f"16. Cross-file References: FAILED or no result")
+            record_result(16, "Cross-file references", "FAIL")
+
+    # ------------------------------------------------------------------
+    # Tests 21-22: Data flow (DataFlowTestTarget.java)
+    # ------------------------------------------------------------------
+
+    def _ensure_dataflow(self):
+        self.initialize()
+        self.ensure_open(DATAFLOW_FILE)
+        self.wait_index()
         print("    Waiting 10s for dataflow file indexing...")
         time.sleep(10)
-    
-        # Test 21: dataflowFrom on constructor param (line 7, char 37 = "input")
-        # public DataFlowTestTarget(String input) — flows to: this.inputValue = input (line 8)
-        resp = send_and_recv(
-            sock,
+
+    def test_21_dataflow_from(self):
+        self._ensure_dataflow()
+        resp = self.request(
             "textDocument/dataflowFrom",
             {
-                "textDocument": {"uri": f"file://{dataflow_file}"},
+                "textDocument": {"uri": f"file://{DATAFLOW_FILE}"},
                 "position": {"line": 7, "character": 37},
             },
             21,
@@ -887,14 +944,13 @@ def test_all():
         else:
             print(f"21. DataFlowFrom: FAILED")
             record_result(21, "DataFlowFrom", "FAIL")
-    
-        # Test 22: dataflowTo on inputValue field (line 3, char 20 = "n" in inputValue)
-        # Should find: constructor param "input" that flows INTO this field
-        resp = send_and_recv(
-            sock,
+
+    def test_22_dataflow_to(self):
+        self._ensure_dataflow()
+        resp = self.request(
             "textDocument/dataflowTo",
             {
-                "textDocument": {"uri": f"file://{dataflow_file}"},
+                "textDocument": {"uri": f"file://{DATAFLOW_FILE}"},
                 "position": {"line": 3, "character": 20},
             },
             22,
@@ -920,95 +976,113 @@ def test_all():
         else:
             print(f"22. DataFlowTo: FAILED")
             record_result(22, "DataFlowTo", "FAIL")
-    
-        # ============================================
-        # Semantic Search Tests (separate connection - run BEFORE slow inspection tests)
-        # Server has 10s timeout on semanticSearch
-        # ============================================
-        semantic_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        with open(semantic_test_file) as f:
-            semantic_file_content = f.read()
-    
+
+    # ------------------------------------------------------------------
+    # Tests 31-33: Semantic search (separate connection)
+    # ------------------------------------------------------------------
+
+    def _connect_semantic(self):
+        if self.sock2 is not None:
+            return self.sock2
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock2.settimeout(30)
         try:
-            print("    Connecting to server for semantic search tests...")
             sock2.connect(("127.0.0.1", 8989))
-            print("    Initializing semantic search connection...")
-            send_and_recv(sock2, "initialize", {"processId": 12345, "clientInfo": {"name": "test", "version": "1.0"}, "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}], "capabilities": {}}, 100)
-            send_notification(sock2, "initialized", {})
-            print("    Opening semantic test file...")
-            send_notification(sock2, "textDocument/didOpen", {"textDocument": {"uri": f"file://{semantic_test_file}", "languageId": "java", "version": 1, "text": semantic_file_content}})
-            drain_notifications(sock2, 5)
-            print("    Starting semantic search tests...")
-    
-            # Test 31: Find field declarations
-            sock2.settimeout(20)
-            resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}"}, 131)
-            sock2.settimeout(30)
-            if resp and "result" in resp:
-                matches = resp["result"]
-                if isinstance(matches, list) and len(matches) > 0:
-                    print(f"31. Semantic Search (fields): OK - Found {len(matches)} field declarations")
-                    for m in matches[:3]:
-                        start = m.get("start", {})
-                        line = start.get("line", "?")
-                        text = m.get("matchedText", "")[:50]
-                        print(f"    - line {line}: {text}")
-                    record_result(31, "Semantic Search fields", "PASS", f"{len(matches)} matches")
-                else:
-                    print(f"31. Semantic Search (fields): no results returned")
-                    record_result(31, "Semantic Search fields", "KNOWN", "no results - SSR may not match")
-            else:
-                print(f"31. Semantic Search (fields): TIMEOUT")
-                record_result(31, "Semantic Search fields", "KNOWN", "TIMEOUT")
-    
-            # Test 32: Find Logger fields with constraint (use simpler pattern without $Modifiers$)
-            sock2.settimeout(20)
-            resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"regex": "Logger"}}}, 132)
-            sock2.settimeout(30)
-            if resp and "result" in resp:
-                matches = resp["result"]
-                if isinstance(matches, list) and len(matches) > 0:
-                    print(f"32. Semantic Search (Logger fields): OK - Found {len(matches)} Logger fields")
-                    for m in matches[:3]:
-                        start = m.get("start", {})
-                        line = start.get("line", "?")
-                        text = m.get("matchedText", "")[:80]
-                        print(f"    - line {line}: {text}")
-                    record_result(32, "Semantic Search Logger", "PASS", f"{len(matches)} matches")
-                else:
-                    print(f"32. Semantic Search (Logger fields): no results")
-                    record_result(32, "Semantic Search Logger", "KNOWN", "no results")
-            else:
-                print(f"32. Semantic Search (Logger fields): TIMEOUT")
-                record_result(32, "Semantic Search Logger", "KNOWN", "TIMEOUT")
-    
-            # Test 33: Invalid constraint — should return error
-            sock2.settimeout(20)
-            resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{semantic_test_file}", "constraints": {"$Type$": {"foo": "bar"}}}, 133)
-            sock2.settimeout(30)
-            if resp and "error" in resp:
-                print(f"33. Semantic Search invalid constraint: OK - got error")
-                record_result(33, "Semantic Search invalid constraint", "PASS")
-            elif resp and "result" in resp:
-                print(f"33. Semantic Search invalid constraint: returned result instead of error")
-                record_result(33, "Semantic Search invalid constraint", "FAIL")
-            else:
-                print(f"33. Semantic Search invalid constraint: TIMEOUT")
-                record_result(33, "Semantic Search invalid constraint", "KNOWN", "TIMEOUT")
-    
-            send_and_recv(sock2, "shutdown", {}, 140)
-            send_notification(sock2, "exit", {})
-            sock2.close()
         except ConnectionRefusedError:
-            print("31-33. Semantic Search: SKIPPED - server unavailable")
-            record_result(31, "Semantic Search fields", "SKIP")
-            record_result(32, "Semantic Search Logger", "SKIP")
-            record_result(33, "Semantic Search invalid constraint", "SKIP")
-    
-        # Test inspection list — list all inspections
-        resp = send_and_recv(sock, "$/inspection/list", {"query": ""}, 23)
+            print("    Semantic Search: SKIPPED - server unavailable")
+            return None
+        send_and_recv(sock2, "initialize", {"processId": 12345, "clientInfo": {"name": "test", "version": "1.0"}, "workspaceFolders": [{"uri": f"file://{PROJECT_ROOT}", "name": "git"}], "capabilities": {}}, 100)
+        send_notification(sock2, "initialized", {})
+        with open(LSP_SERVER_FILE) as f:
+            semantic_file_content = f.read()
+        send_notification(sock2, "textDocument/didOpen", {"textDocument": {"uri": f"file://{LSP_SERVER_FILE}", "languageId": "java", "version": 1, "text": semantic_file_content}})
+        drain_notifications(sock2, 5)
+        self.sock2 = sock2
+        return sock2
+
+    def _close_semantic(self):
+        if self.sock2 is not None:
+            send_and_recv(self.sock2, "shutdown", {}, 140)
+            send_notification(self.sock2, "exit", {})
+            self.sock2.close()
+            self.sock2 = None
+
+    def test_31_semantic_fields(self):
+        sock2 = self._connect_semantic()
+        if sock2 is None:
+            record_result(31, "Semantic Search fields", "SKIP", "server unavailable")
+            return
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{LSP_SERVER_FILE}"}, 131)
+        sock2.settimeout(30)
+        if resp and "result" in resp:
+            matches = resp["result"]
+            if isinstance(matches, list) and len(matches) > 0:
+                print(f"31. Semantic Search (fields): OK - Found {len(matches)} field declarations")
+                for m in matches[:3]:
+                    start = m.get("start", {})
+                    line = start.get("line", "?")
+                    text = m.get("matchedText", "")[:50]
+                    print(f"    - line {line}: {text}")
+                record_result(31, "Semantic Search fields", "PASS", f"{len(matches)} matches")
+            else:
+                print(f"31. Semantic Search (fields): no results returned")
+                record_result(31, "Semantic Search fields", "KNOWN", "no results - SSR may not match")
+        else:
+            print(f"31. Semantic Search (fields): TIMEOUT")
+            record_result(31, "Semantic Search fields", "KNOWN", "TIMEOUT")
+
+    def test_32_semantic_logger(self):
+        sock2 = self._connect_semantic()
+        if sock2 is None:
+            record_result(32, "Semantic Search Logger", "SKIP", "server unavailable")
+            return
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{LSP_SERVER_FILE}", "constraints": {"$Type$": {"regex": "Logger"}}}, 132)
+        sock2.settimeout(30)
+        if resp and "result" in resp:
+            matches = resp["result"]
+            if isinstance(matches, list) and len(matches) > 0:
+                print(f"32. Semantic Search (Logger fields): OK - Found {len(matches)} Logger fields")
+                for m in matches[:3]:
+                    start = m.get("start", {})
+                    line = start.get("line", "?")
+                    text = m.get("matchedText", "")[:80]
+                    print(f"    - line {line}: {text}")
+                record_result(32, "Semantic Search Logger", "PASS", f"{len(matches)} matches")
+            else:
+                print(f"32. Semantic Search (Logger fields): no results")
+                record_result(32, "Semantic Search Logger", "KNOWN", "no results")
+        else:
+            print(f"32. Semantic Search (Logger fields): TIMEOUT")
+            record_result(32, "Semantic Search Logger", "KNOWN", "TIMEOUT")
+
+    def test_33_semantic_invalid(self):
+        sock2 = self._connect_semantic()
+        if sock2 is None:
+            record_result(33, "Semantic Search invalid constraint", "SKIP", "server unavailable")
+            return
+        sock2.settimeout(20)
+        resp = send_and_recv(sock2, "textDocument/semanticSearch", {"pattern": "$Modifiers$ $Type$ $FieldName$;", "scope": "file", "language": "java", "fileUri": f"file://{LSP_SERVER_FILE}", "constraints": {"$Type$": {"foo": "bar"}}}, 133)
+        sock2.settimeout(30)
+        if resp and "error" in resp:
+            print(f"33. Semantic Search invalid constraint: OK - got error")
+            record_result(33, "Semantic Search invalid constraint", "PASS")
+        elif resp and "result" in resp:
+            print(f"33. Semantic Search invalid constraint: returned result instead of error")
+            record_result(33, "Semantic Search invalid constraint", "FAIL")
+        else:
+            print(f"33. Semantic Search invalid constraint: TIMEOUT")
+            record_result(33, "Semantic Search invalid constraint", "KNOWN", "TIMEOUT")
+        self._close_semantic()
+
+    # ------------------------------------------------------------------
+    # Tests 23-30: Inspections and code actions
+    # ------------------------------------------------------------------
+
+    def test_23_inspection_list_all(self):
+        self.initialize()
+        resp = self.request("$/inspection/list", {"query": ""}, 23)
         if resp and "result" in resp and resp["result"]:
             inspections = resp["result"]
             print(f"23. Inspection list (all): OK - Found {len(inspections)} inspections")
@@ -1020,9 +1094,10 @@ def test_all():
             err = resp.get("error") if resp else None
             print(f"23. Inspection list (all): FAILED (error={err})")
             record_result(23, "Inspection list all", "FAIL")
-    
-        # Test inspection list — search by query
-        resp = send_and_recv(sock, "$/inspection/list", {"query": "unused"}, 24)
+
+    def test_24_inspection_list_search(self):
+        self.initialize()
+        resp = self.request("$/inspection/list", {"query": "unused"}, 24)
         if resp and "result" in resp and resp["result"]:
             inspections = resp["result"]
             print(f"24. Inspection list (search 'unused'): OK - Found {len(inspections)} inspections")
@@ -1037,9 +1112,10 @@ def test_all():
             err = resp.get("error") if resp else None
             print(f"24. Inspection list (search): FAILED (error={err})")
             record_result(24, "Inspection list search", "FAIL")
-    
-        # Test inspection list — non-existent query
-        resp = send_and_recv(sock, "$/inspection/list", {"query": "zzzthisdoesnotexist"}, 25)
+
+    def test_25_inspection_list_missing(self):
+        self.initialize()
+        resp = self.request("$/inspection/list", {"query": "zzzthisdoesnotexist"}, 25)
         if resp and "result" in resp:
             inspections = resp["result"]
             if isinstance(inspections, list) and len(inspections) == 0:
@@ -1052,13 +1128,12 @@ def test_all():
             err = resp.get("error") if resp else None
             print(f"25. Inspection list (non-existent): FAILED (error={err})")
             record_result(25, "Inspection list non-existent", "FAIL")
-    
-        # Test inspection runByName — run a specific inspection on a file
-        test_run_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        resp = send_and_recv(
-            sock,
+
+    def test_26_inspection_run_unused(self):
+        self.initialize()
+        resp = self.request(
             "$/inspection/runByName",
-            {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "unused"},
+            {"textDocument": {"uri": f"file://{LSP_SERVER_FILE}"}, "name": "unused"},
             26,
         )
         if resp and "result" in resp:
@@ -1077,12 +1152,12 @@ def test_all():
             err = resp.get("error") if resp else None
             print(f"26. Inspection runByName (unused): FAILED (error={err})")
             record_result(26, "Inspection runByName unused", "FAIL")
-    
-        # Test inspection runByName with non-existent name
-        resp = send_and_recv(
-            sock,
+
+    def test_27_inspection_run_missing(self):
+        self.initialize()
+        resp = self.request(
             "$/inspection/runByName",
-            {"textDocument": {"uri": f"file://{test_run_file}"}, "name": "zzzthisdoesnotexist"},
+            {"textDocument": {"uri": f"file://{LSP_SERVER_FILE}"}, "name": "zzzthisdoesnotexist"},
             27,
         )
         if resp and "result" in resp:
@@ -1097,16 +1172,12 @@ def test_all():
             err = resp.get("error") if resp else None
             print(f"27. Inspection runByName (non-existent): FAILED (error={err})")
             record_result(27, "Inspection runByName non-existent", "FAIL")
-    
-        # Test inspection runByName on all files (no textDocument) - known to timeout
-        sock.settimeout(15)
-        resp = send_and_recv(
-            sock,
-            "$/inspection/runByName",
-            {"name": "unused"},
-            28,
-        )
-        sock.settimeout(90)
+
+    def test_28_inspection_run_allfiles(self):
+        self.initialize()
+        self.sock.settimeout(15)
+        resp = self.request("$/inspection/runByName", {"name": "unused"}, 28)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             diagnostics = resp["result"]
             if isinstance(diagnostics, list):
@@ -1128,16 +1199,12 @@ def test_all():
             else:
                 print(f"28. Inspection runByName (all files): FAILED (error={err})")
                 record_result(28, "Inspection runByName all-files", "FAIL")
-    
-        # Test inspection runByName on all files with null textDocument
-        sock.settimeout(15)
-        resp = send_and_recv(
-            sock,
-            "$/inspection/runByName",
-            {"textDocument": None, "name": "unused"},
-            29,
-        )
-        sock.settimeout(90)
+
+    def test_29_inspection_run_null(self):
+        self.initialize()
+        self.sock.settimeout(15)
+        resp = self.request("$/inspection/runByName", {"textDocument": None, "name": "unused"}, 29)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             diagnostics = resp["result"]
             if isinstance(diagnostics, list):
@@ -1154,19 +1221,15 @@ def test_all():
             else:
                 print(f"29. Inspection runByName (null textDocument): FAILED (error={err})")
                 record_result(29, "Inspection runByName null-textDocument", "FAIL")
-    
-    # ============================================
-        # Code Action Apply Test
-        # ============================================
-        # Use LspServer.java which is already open from test 13 and indexed
-        apply_test_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-    
-        # Get code actions - should return (not hang) since file is already open
-        resp = send_and_recv(
-            sock,
+
+    def test_30_code_actions(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE)
+        self.wait_index()
+        resp = self.request(
             "textDocument/codeAction",
             {
-                "textDocument": {"uri": f"file://{apply_test_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "range": {"start": {"line": 0, "character": 0}, "end": {"line": 100, "character": 0}},
                 "context": {"diagnostics": []}
             },
@@ -1183,33 +1246,26 @@ def test_all():
         else:
             print(f"30. Code Actions: FAILED - no response")
             record_result(30, "Code Actions", "FAIL")
-    
-        # ============================================
-        # Additional LSP Feature Tests
-        # ============================================
-    
-        # Re-open the file cleanly before additional tests
-        sig_help_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        with open(sig_help_file) as f:
-            clean_text = f.read()
-    
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": f"file://{sig_help_file}", "languageId": "java", "version": 100, "text": clean_text}
-        })
-        drain_notifications(sock, seconds=3)
-    
-        # Test signatureHelp - on a method call with parameters (line 65 has messageBusConnection = ...)
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+
+    # ------------------------------------------------------------------
+    # Tests 34-38: signature/formatting/rename/resolve on LspServer.java
+    # ------------------------------------------------------------------
+
+    def test_34_signature_help(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=3)
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/signatureHelp",
             {
-                "textDocument": {"uri": f"file://{sig_help_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 65, "character": 50},
             },
             34,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result and result.get("signatures"):
@@ -1222,19 +1278,21 @@ def test_all():
         else:
             print(f"34. Signature Help: TIMEOUT or not supported")
             record_result(34, "Signature Help", "KNOWN", "TIMEOUT - server not responding")
-    
-        # Test formatting - format the entire file
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+
+    def test_35_formatting(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.wait_index()
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/formatting",
             {
-                "textDocument": {"uri": f"file://{sig_help_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "options": {"tabSize": 4, "insertSpaces": True},
             },
             35,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1246,14 +1304,16 @@ def test_all():
         else:
             print(f"35. Formatting: TIMEOUT or not supported")
             record_result(35, "Formatting", "KNOWN", "TIMEOUT - server not responding")
-    
-        # Test range formatting - format a small range
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+
+    def test_36_range_formatting(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.wait_index()
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/rangeFormatting",
             {
-                "textDocument": {"uri": f"file://{sig_help_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "range": {
                     "start": {"line": 0, "character": 0},
                     "end": {"line": 10, "character": 0},
@@ -1262,7 +1322,7 @@ def test_all():
             },
             36,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1274,38 +1334,34 @@ def test_all():
         else:
             print(f"36. Range Formatting: TIMEOUT or not supported")
             record_result(36, "Range Formatting", "KNOWN", "TIMEOUT - server not responding")
-    
-        # Test rename - on LOG field (line 47, char 30)
-        import shutil
+
+    def test_37_rename(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.wait_index()
         rename_original_backup = None
-        if os.path.exists(sig_help_file):
-            with open(sig_help_file) as f:
+        if os.path.exists(LSP_SERVER_FILE):
+            with open(LSP_SERVER_FILE) as f:
                 rename_original_backup = f.read()
-    
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/rename",
             {
-                "textDocument": {"uri": f"file://{sig_help_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 47, "character": 30},
                 "newName": "renamedLOG",
             },
             37,
         )
-        sock.settimeout(90)
-    
-        # Restore original file content (rename applies server-side)
+        self.sock.settimeout(90)
         if rename_original_backup is not None:
-            with open(sig_help_file, "w") as f:
+            with open(LSP_SERVER_FILE, "w") as f:
                 f.write(rename_original_backup)
-            # Re-open the file to sync the server
-            send_notification(sock, "textDocument/didChange", {
-                "textDocument": {"uri": f"file://{sig_help_file}", "version": 101},
+            send_notification(self.sock, "textDocument/didChange", {
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}", "version": 101},
                 "contentChanges": [{"text": rename_original_backup}],
             })
-            drain_notifications(sock, seconds=1)
-    
+            drain_notifications(self.sock, seconds=1)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1329,52 +1385,36 @@ def test_all():
         else:
             print(f"37. Rename: TIMEOUT or not supported")
             record_result(37, "Rename", "KNOWN", "TIMEOUT - server not responding")
-    
-        # ============================================
-        # Cross-file rename test — rename `stop()` method used from another file
-        # ============================================
-        import shutil
-        lsp_server_file = f"{SOURCE_PATH}/tf/locals/idealsp/server/LspServer.java"
-        lsp_runner_file = f"{bootstrap_path}/LspServerRunnerBase.java"
-    
-        # Save originals
+
+    def test_371_cross_file_rename(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.ensure_open(LSP_RUNNER_FILE)
+        self.wait_index()
         xfile_backups = {}
-        for xf in [lsp_server_file, lsp_runner_file]:
+        for xf in [LSP_SERVER_FILE, LSP_RUNNER_FILE]:
             if os.path.exists(xf):
                 with open(xf) as f:
                     xfile_backups[xf] = f.read()
-    
-        # Ensure LspServerRunnerBase.java is open on the server
-        if lsp_runner_file in xfile_backups:
-            send_notification(sock, "textDocument/didOpen", {
-                "textDocument": {"uri": f"file://{lsp_runner_file}", "languageId": "java",
-                                 "version": 1, "text": xfile_backups[lsp_runner_file]}
-            })
-            drain_notifications(sock, seconds=2)
-    
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/rename",
             {
-                "textDocument": {"uri": f"file://{lsp_server_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 214, "character": 27},
                 "newName": "renamedStop",
             },
             371,
         )
-        sock.settimeout(90)
-    
-        # Restore both files
+        self.sock.settimeout(90)
         for xf, content in xfile_backups.items():
             with open(xf, "w") as f:
                 f.write(content)
-            send_notification(sock, "textDocument/didChange", {
+            send_notification(self.sock, "textDocument/didChange", {
                 "textDocument": {"uri": f"file://{xf}", "version": 999},
                 "contentChanges": [{"text": content}],
             })
-        drain_notifications(sock, seconds=1)
-    
+        drain_notifications(self.sock, seconds=1)
         if resp and "result" in resp:
             result = resp["result"]
             if result:
@@ -1386,49 +1426,44 @@ def test_all():
                         uri = ted.get("textDocument", {}).get("uri", "")
                         if uri:
                             uris_involved.add(uri)
-                # Also check 'changes' map
                 changes_map = result.get("changes") or {}
                 uris_involved.update(changes_map.keys())
-    
                 has_server_runner = any("LspServerRunnerBase" in u for u in uris_involved)
                 has_lsp_server = any("LspServer.java" in u for u in uris_involved)
                 if has_lsp_server and has_server_runner:
-                    print(f"37b. Cross-file Rename: OK - Affected {len(uris_involved)} files: {[u.split('/')[-1] for u in uris_involved]}")
+                    print(f"371. Cross-file Rename: OK - Affected {len(uris_involved)} files: {[u.split('/')[-1] for u in uris_involved]}")
                     record_result(371, "Cross-file Rename", "PASS", f"{len(uris_involved)} files")
                 else:
-                    print(f"37b. Cross-file Rename: FAIL - Expected both LspServer.java and LspServerRunnerBase.java, got: {[u.split('/')[-1] for u in uris_involved]}")
+                    print(f"371. Cross-file Rename: FAIL - Expected both LspServer.java and LspServerRunnerBase.java, got: {[u.split('/')[-1] for u in uris_involved]}")
                     record_result(371, "Cross-file Rename", "FAIL", f"got files: {list(uris_involved)}")
             else:
-                print(f"37b. Cross-file Rename: No result")
+                print(f"371. Cross-file Rename: No result")
                 record_result(371, "Cross-file Rename", "FAIL", "no result")
         else:
-            print(f"37b. Cross-file Rename: TIMEOUT or not supported")
+            print(f"371. Cross-file Rename: TIMEOUT or not supported")
             record_result(371, "Cross-file Rename", "KNOWN", "TIMEOUT")
-    
-        # Cleanup: close runner file
-        send_notification(sock, "textDocument/didClose", {
-            "textDocument": {"uri": f"file://{lsp_runner_file}"}
-        })
-    
-        # Test resolveCompletionItem - get a completion item and resolve it
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+
+    def test_38_resolve_completion(self):
+        self.initialize()
+        self.ensure_open(LSP_SERVER_FILE, force=True, version=100)
+        self.wait_index()
+        self.sock.settimeout(10)
+        resp = self.request(
             "textDocument/completion",
             {
-                "textDocument": {"uri": f"file://{sig_help_file}"},
+                "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
                 "position": {"line": 50, "character": 4},
             },
             38,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         if resp and "result" in resp and resp["result"]:
             result = resp["result"]
             items = result if isinstance(result, list) else result.get("items", [])
             if items:
                 first_item = items[0]
                 if first_item.get("data"):
-                    resolved = send_and_recv(sock, "completionItem/resolve", first_item, 39)
+                    resolved = self.request("completionItem/resolve", first_item, 39)
                     if resolved and "result" in resolved:
                         print(f"38. ResolveCompletionItem: OK - Resolved '{resolved['result'].get('label', 'unknown')}'")
                         record_result(38, "ResolveCompletionItem", "PASS")
@@ -1444,45 +1479,23 @@ def test_all():
         else:
             print(f"38. ResolveCompletionItem: TIMEOUT - no response")
             record_result(38, "ResolveCompletionItem", "KNOWN", "TIMEOUT")
-    else:
-        for _n in list(range(1, 52)):
-            skip_test(sock, _n, f"Test {_n}")
-        print("Selective mode: skipping tests 1-51")
 
-    # ============================================
-    # Type Hierarchy Tests (prepareTypeHierarchy)
-    # Resync socket to drain any orphan responses from TIMEOUTs above
-    # ============================================
-    resync_socket(sock, timeout=15)
-    test_th_file = os.path.join(PROJECT_ROOT, "server/test-data/typehierarchy/TypeHierarchyTest.java")
-    try:
-        with open(test_th_file) as f:
-            test_th_text = f.read()
-    except FileNotFoundError:
-        print("TEST_DATA_NOT_FOUND: test-data/typehierarchy/TypeHierarchyTest.java")
-        test_th_text = None
+    # ------------------------------------------------------------------
+    # Tests 39-42: Type hierarchy (TypeHierarchyTest.java)
+    # ------------------------------------------------------------------
 
-    if test_th_text:
-        send_notification(
-            sock,
-            "textDocument/didOpen",
-            {
-                "textDocument": {
-                    "uri": f"file://{test_th_file}",
-                    "languageId": "java",
-                    "version": 1,
-                    "text": test_th_text,
-                }
-            },
-        )
-        drain_notifications(sock, seconds=5)
+    def _ensure_typehierarchy(self):
+        self.initialize()
+        self.ensure_open(TYPE_HIERARCHY_FILE)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=5)
 
-        # Test 39: prepareTypeHierarchy on ConcreteImpl class (line 15, char 7)
-        resp = send_and_recv(
-            sock,
+    def test_39_type_hierarchy_concrete(self):
+        self._ensure_typehierarchy()
+        resp = self.request(
             "textDocument/prepareTypeHierarchy",
             {
-                "textDocument": {"uri": f"file://{test_th_file}"},
+                "textDocument": {"uri": f"file://{TYPE_HIERARCHY_FILE}"},
                 "position": {"line": 15, "character": 7},
             },
             39,
@@ -1500,18 +1513,19 @@ def test_all():
             print(f"39. PrepareTypeHierarchy: FAILED or no result - {resp}")
             record_result(39, "PrepareTypeHierarchy ConcreteImpl", "FAIL")
 
-        concrete_item = None
-        if resp and "result" in resp and resp["result"]:
-            concrete_item = resp["result"][0]
-
-        # Test 40: typeHierarchy/supertypes on ConcreteImpl → should find AbstractBase
+    def test_40_supertypes_concrete(self):
+        self._ensure_typehierarchy()
+        resp = self.request(
+            "textDocument/prepareTypeHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TYPE_HIERARCHY_FILE}"},
+                "position": {"line": 15, "character": 7},
+            },
+            39,
+        )
+        concrete_item = resp["result"][0] if resp and "result" in resp and resp["result"] else None
         if concrete_item:
-            resp = send_and_recv(
-                sock,
-                "typeHierarchy/supertypes",
-                {"item": concrete_item},
-                40,
-            )
+            resp = self.request("typeHierarchy/supertypes", {"item": concrete_item}, 40)
             if resp and "result" in resp and resp["result"]:
                 super_names = sorted([i.get("name") for i in resp["result"]])
                 if "AbstractBase" in super_names:
@@ -1523,13 +1537,16 @@ def test_all():
             else:
                 print(f"40. Supertypes ConcreteImpl: FAILED or no result - {resp}")
                 record_result(40, "Supertypes ConcreteImpl", "FAIL")
+        else:
+            print(f"40. Supertypes ConcreteImpl: SKIPPED - prepare returned no item")
+            record_result(40, "Supertypes ConcreteImpl", "SKIP")
 
-        # Test 41: prepareTypeHierarchy on AbstractBase line 8, char 16 (0-indexed: "abstract class AbstractBase {", char 16 = 'b')
-        resp = send_and_recv(
-            sock,
+    def test_41_type_hierarchy_abstract(self):
+        self._ensure_typehierarchy()
+        resp = self.request(
             "textDocument/prepareTypeHierarchy",
             {
-                "textDocument": {"uri": f"file://{test_th_file}"},
+                "textDocument": {"uri": f"file://{TYPE_HIERARCHY_FILE}"},
                 "position": {"line": 8, "character": 16},
             },
             41,
@@ -1547,18 +1564,19 @@ def test_all():
             print(f"41. PrepareTypeHierarchy: FAILED or no result - {resp}")
             record_result(41, "PrepareTypeHierarchy AbstractBase", "FAIL")
 
-        abstract_item = None
-        if resp and "result" in resp and resp["result"]:
-            abstract_item = resp["result"][0]
-
-        # Test 42: typeHierarchy/subtypes on AbstractBase → should find ConcreteImpl
+    def test_42_subtypes_abstract(self):
+        self._ensure_typehierarchy()
+        resp = self.request(
+            "textDocument/prepareTypeHierarchy",
+            {
+                "textDocument": {"uri": f"file://{TYPE_HIERARCHY_FILE}"},
+                "position": {"line": 8, "character": 16},
+            },
+            41,
+        )
+        abstract_item = resp["result"][0] if resp and "result" in resp and resp["result"] else None
         if abstract_item:
-            resp = send_and_recv(
-                sock,
-                "typeHierarchy/subtypes",
-                {"item": abstract_item},
-                42,
-            )
+            resp = self.request("typeHierarchy/subtypes", {"item": abstract_item}, 42)
             if resp and "result" in resp and resp["result"]:
                 sub_names = sorted([i.get("name") for i in resp["result"]])
                 if "ConcreteImpl" in sub_names:
@@ -1570,54 +1588,43 @@ def test_all():
             else:
                 print(f"42. Subtypes AbstractBase: FAILED or no result - {resp}")
                 record_result(42, "Subtypes AbstractBase", "FAIL")
+        else:
+            print(f"42. Subtypes AbstractBase: SKIPPED - prepare returned no item")
+            record_result(42, "Subtypes AbstractBase", "SKIP")
 
-        # Cleanup: close test file
-        send_notification(
-            sock,
-            "textDocument/didClose",
-            {"textDocument": {"uri": f"file://{test_th_file}"}},
-        )
+    # ------------------------------------------------------------------
+    # Tests 43-45: Refactoring (RefactorTest.java)
+    # ------------------------------------------------------------------
 
-    # ============================================
-    # Refactoring tests — idealsp/refactor custom method
-    # Resync socket to drain any orphan responses from hierarchy TIMEOUTs
-    # ============================================
+    def _open_refactor(self):
+        self.initialize()
+        with open(REFACTOR_TEST_FILE, "w") as f:
+            f.write(REFACTOR_SNIPPET)
+        self.ensure_open(REFACTOR_TEST_FILE, force=True)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=2)
 
-    refactor_snippet = (
-        "public class RefactorTest {\n"
-        "    void test() {\n"
-        "        int a = 1;\n"
-        "        int b = 2;\n"
-        "        int c = a + b;\n"
-        "        String s = \"hello\";\n"
-        "    }\n"
-        "}\n"
-    )
-    refactor_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/RefactorTest.java")
-    test_uri = f"file://{refactor_test_file}"
+    def _close_refactor(self):
+        self.close_open(REFACTOR_TEST_FILE)
+        drain_notifications(self.sock, seconds=1)
+        if os.path.exists(REFACTOR_TEST_FILE):
+            os.remove(REFACTOR_TEST_FILE)
 
-    if should_run(43) or should_run(44) or should_run(45):
-        with open(refactor_test_file, "w") as f:
-            f.write(refactor_snippet)
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": test_uri, "languageId": "java",
-                             "version": 1, "text": refactor_snippet}
-        })
-        drain_notifications(sock, seconds=2)
-
-    if should_run(43):
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+    def test_43_refactor_extract(self):
+        self.initialize()
+        self.resync()
+        self._open_refactor()
+        self.sock.settimeout(10)
+        resp = self.request(
             "idealsp/refactor",
-            {"uri": test_uri, "type": "extract-method",
+            {"uri": f"file://{REFACTOR_TEST_FILE}", "type": "extract-method",
              "position": {"line": 2, "character": 8},
              "startRange": {"line": 2, "character": 8},
              "endRange": {"line": 4, "character": 23},
              "name": None},
             43,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"43. Refactor extract-method: OK")
@@ -1626,19 +1633,20 @@ def test_all():
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
             print(f"43. Refactor extract-method: FAILED - {reason}")
             record_result(43, "Refactor extract-method", "KNOWN" if not resp else "FAIL", reason)
-    else:
-        skip_test(sock, 43, "Refactor extract-method")
+        self._close_refactor()
 
-    if should_run(44):
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+    def test_44_refactor_introduce(self):
+        self.initialize()
+        self.resync()
+        self._open_refactor()
+        self.sock.settimeout(10)
+        resp = self.request(
             "idealsp/refactor",
-            {"uri": test_uri, "type": "introduce-variable",
+            {"uri": f"file://{REFACTOR_TEST_FILE}", "type": "introduce-variable",
              "position": {"line": 4, "character": 18}, "name": None},
             44,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"44. Refactor introduce-variable: OK")
@@ -1647,28 +1655,20 @@ def test_all():
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
             print(f"44. Refactor introduce-variable: FAILED - {reason}")
             record_result(44, "Refactor introduce-variable", "KNOWN" if not resp else "FAIL", reason)
-    else:
-        skip_test(sock, 44, "Refactor introduce-variable")
+        self._close_refactor()
 
-    # Re-open snippet after refactoring modified it (if any refactoring ran)
-    if should_run(43) or should_run(44):
-        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": test_uri, "languageId": "java",
-                             "version": 2, "text": refactor_snippet}
-        })
-        drain_notifications(sock, seconds=2)
-
-    if should_run(45):
-        sock.settimeout(10)
-        resp = send_and_recv(
-            sock,
+    def test_45_refactor_inline(self):
+        self.initialize()
+        self.resync()
+        self._open_refactor()
+        self.sock.settimeout(10)
+        resp = self.request(
             "idealsp/refactor",
-            {"uri": test_uri, "type": "inline",
+            {"uri": f"file://{REFACTOR_TEST_FILE}", "type": "inline",
              "position": {"line": 4, "character": 18}, "name": None},
             45,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"45. Refactor inline: OK")
@@ -1676,25 +1676,18 @@ def test_all():
         else:
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
             print(f"45. Refactor inline: FAILED - {reason}")
-            record_result(45, "Refactor inline", "KNOWN" if not resp else "PASS", reason)
-    else:
-        skip_test(sock, 45, "Refactor inline")
+            record_result(45, "Refactor inline", "KNOWN" if not resp else "FAIL", reason)
+        self._close_refactor()
 
-    if should_run(43) or should_run(44) or should_run(45):
-        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": test_uri}})
-        drain_notifications(sock, seconds=1)
-        if os.path.exists(refactor_test_file):
-            os.remove(refactor_test_file)
+    # ------------------------------------------------------------------
+    # Tests 47-50: Project structure
+    # ------------------------------------------------------------------
 
-    # ============================================
-    # Project Structure Tests — idealsp/projectStructure custom extension
-    # ============================================
-
-    # Test 47: projectStructure default scope = "all"
-    if should_run(47):
-        sock.settimeout(15)
-        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "all"}, 47)
-        sock.settimeout(90)
+    def test_47_project_structure(self):
+        self.initialize()
+        self.sock.settimeout(15)
+        resp = self.request("idealsp/projectStructure", {"scope": "all"}, 47)
+        self.sock.settimeout(90)
         if resp and "result" in resp:
             result = resp["result"]
             ok = True
@@ -1735,12 +1728,10 @@ def test_all():
         else:
             print(f"47. ProjectStructure: FAILED or timeout")
             record_result(47, "ProjectStructure", "FAIL")
-    else:
-        skip_test(sock, 47, "ProjectStructure")
 
-    # Test 48: scope=modules
-    if should_run(48):
-        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "modules"}, 48)
+    def test_48_project_structure_modules(self):
+        self.initialize()
+        resp = self.request("idealsp/projectStructure", {"scope": "modules"}, 48)
         if resp and "result" in resp:
             r = resp["result"]
             mods = r.get("modules", [])
@@ -1762,12 +1753,10 @@ def test_all():
         else:
             print(f"48. ProjectStructure scope=modules: FAILED")
             record_result(48, "ProjectStructure modules", "FAIL")
-    else:
-        skip_test(sock, 48, "ProjectStructure modules")
 
-    # Test 49: scope=source
-    if should_run(49):
-        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "source"}, 49)
+    def test_49_project_structure_source(self):
+        self.initialize()
+        resp = self.request("idealsp/projectStructure", {"scope": "source"}, 49)
         if resp and "result" in resp:
             r = resp["result"]
             mods = r.get("modules", [])
@@ -1781,12 +1770,10 @@ def test_all():
         else:
             print(f"49. ProjectStructure scope=source: FAILED")
             record_result(49, "ProjectStructure source", "FAIL")
-    else:
-        skip_test(sock, 49, "ProjectStructure source")
 
-    # Test 50: scope=entry
-    if should_run(50):
-        resp = send_and_recv(sock, "idealsp/projectStructure", {"scope": "entry"}, 50)
+    def test_50_project_structure_entry(self):
+        self.initialize()
+        resp = self.request("idealsp/projectStructure", {"scope": "entry"}, 50)
         if resp and "result" in resp:
             r = resp["result"]
             eps = r.get("entryPoints", [])
@@ -1800,43 +1787,28 @@ def test_all():
         else:
             print(f"50. ProjectStructure scope=entry: FAILED")
             record_result(50, "ProjectStructure entry", "FAIL")
-    else:
-        skip_test(sock, 50, "ProjectStructure entry")
 
-    # ============================================
-    # Move refactoring test
-    # ============================================
-    move_snippet = (
-        "package tf.locals.idealsp.server;\n"
-        "public class MoveMe {\n"
-        "    public void sayHello() {\n"
-        "        System.out.println(\"hello\");\n"
-        "    }\n"
-        "}\n"
-    )
-    move_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/MoveMe.java")
-    move_target_dir = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/movedest")
+    # ------------------------------------------------------------------
+    # Test 52: Refactor move (MoveMe.java)
+    # ------------------------------------------------------------------
 
-    if should_run(52):
-        with open(move_test_file, "w") as f:
-            f.write(move_snippet)
-        os.makedirs(move_target_dir, exist_ok=True)
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": f"file://{move_test_file}", "languageId": "java",
-                             "version": 1, "text": move_snippet}
-        })
-        drain_notifications(sock, seconds=2)
-
-        sock.settimeout(120)
-        resp = send_and_recv(
-            sock,
+    def test_52_refactor_move(self):
+        self.initialize()
+        with open(MOVE_TEST_FILE, "w") as f:
+            f.write(MOVE_SNIPPET)
+        os.makedirs(MOVE_TARGET_DIR, exist_ok=True)
+        self.ensure_open(MOVE_TEST_FILE, force=True)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=2)
+        self.sock.settimeout(120)
+        resp = self.request(
             "idealsp/refactor",
-            {"uri": f"file://{move_test_file}", "type": "move",
+            {"uri": f"file://{MOVE_TEST_FILE}", "type": "move",
              "position": {"line": 1, "character": 22},
-             "targetPackageUri": f"file://{move_target_dir}"},
+             "targetPackageUri": f"file://{MOVE_TARGET_DIR}"},
             52,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"52. Refactor move: OK")
@@ -1845,49 +1817,32 @@ def test_all():
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
             print(f"52. Refactor move: FAILED - {reason}")
             record_result(52, "Refactor move", "FAIL" if resp else "KNOWN", reason)
+        self.close_open(MOVE_TEST_FILE)
+        drain_notifications(self.sock, seconds=1)
+        if os.path.exists(MOVE_TEST_FILE):
+            os.remove(MOVE_TEST_FILE)
+        if os.path.isdir(MOVE_TARGET_DIR):
+            shutil.rmtree(MOVE_TARGET_DIR, ignore_errors=True)
 
-        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{move_test_file}"}})
-        drain_notifications(sock, seconds=1)
-        if os.path.exists(move_test_file):
-            os.remove(move_test_file)
-    else:
-        skip_test(sock, 52, "Refactor move")
+    # ------------------------------------------------------------------
+    # Test 53: Refactor safe-delete (DeleteMe.java)
+    # ------------------------------------------------------------------
 
-    # ============================================
-    # Safe delete refactoring test
-    # ============================================
-    safedelete_snippet = (
-        "package tf.locals.idealsp.server;\n"
-        "public class DeleteMe {\n"
-        "    private int keep;\n"
-        "    public void usedMethod() {\n"
-        "        System.out.println(\"used\");\n"
-        "    }\n"
-        "    public void unusedMethod() {\n"
-        "        int x = 1;\n"
-        "    }\n"
-        "}\n"
-    )
-    safedelete_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/DeleteMe.java")
-
-    if should_run(53):
-        with open(safedelete_test_file, "w") as f:
-            f.write(safedelete_snippet)
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": f"file://{safedelete_test_file}", "languageId": "java",
-                             "version": 1, "text": safedelete_snippet}
-        })
-        drain_notifications(sock, seconds=2)
-
-        sock.settimeout(120)
-        resp = send_and_recv(
-            sock,
+    def test_53_refactor_safe_delete(self):
+        self.initialize()
+        with open(SAFEDELETE_TEST_FILE, "w") as f:
+            f.write(SAFEDELETE_SNIPPET)
+        self.ensure_open(SAFEDELETE_TEST_FILE, force=True)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=2)
+        self.sock.settimeout(120)
+        resp = self.request(
             "idealsp/refactor",
-            {"uri": f"file://{safedelete_test_file}", "type": "safe-delete",
+            {"uri": f"file://{SAFEDELETE_TEST_FILE}", "type": "safe-delete",
              "position": {"line": 6, "character": 23}},
             53,
         )
-        sock.settimeout(90)
+        self.sock.settimeout(90)
         applied = resp.get("result", {}).get("applied", False) if resp else False
         if applied:
             print(f"53. Refactor safe-delete: OK")
@@ -1896,43 +1851,26 @@ def test_all():
             reason = resp.get("result", {}).get("failureReason", "N/A") if resp else "TIMEOUT"
             print(f"53. Refactor safe-delete: FAILED - {reason}")
             record_result(53, "Refactor safe-delete", "FAIL" if resp else "KNOWN", reason)
+        self.close_open(SAFEDELETE_TEST_FILE)
+        drain_notifications(self.sock, seconds=1)
+        if os.path.exists(SAFEDELETE_TEST_FILE):
+            os.remove(SAFEDELETE_TEST_FILE)
 
-        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{safedelete_test_file}"}})
-        drain_notifications(sock, seconds=1)
-        if os.path.exists(safedelete_test_file):
-            os.remove(safedelete_test_file)
-    else:
-        skip_test(sock, 53, "Refactor safe-delete")
+    # ------------------------------------------------------------------
+    # Test 54: codeActionApply (ApplyTest.java)
+    # ------------------------------------------------------------------
 
-    # ============================================
-    # codeActionApply test
-    # ============================================
-    apply_snippet = (
-        "package tf.locals.idealsp.server;\n"
-        "public class ApplyTest {\n"
-        "    public static void f() {\n"
-        "        int a = \"\";\n"
-        "        System.out.println();\n"
-        "    }\n"
-        "}\n"
-    )
-    apply_test_file = os.path.join(SOURCE_PATH, "tf/locals/idealsp/server/ApplyTest.java")
-
-    if should_run(54):
-        with open(apply_test_file, "w") as f:
-            f.write(apply_snippet)
-        send_notification(sock, "textDocument/didOpen", {
-            "textDocument": {"uri": f"file://{apply_test_file}", "languageId": "java",
-                             "version": 1, "text": apply_snippet}
-        })
-        drain_notifications(sock, seconds=5)
-
-        # Get code actions first
-        code_action_resp = send_and_recv(
-            sock,
+    def test_54_code_action_apply(self):
+        self.initialize()
+        with open(APPLY_TEST_FILE, "w") as f:
+            f.write(APPLY_SNIPPET)
+        self.ensure_open(APPLY_TEST_FILE, force=True)
+        self.wait_index()
+        drain_notifications(self.sock, seconds=5)
+        code_action_resp = self.request(
             "textDocument/codeAction",
             {
-                "textDocument": {"uri": f"file://{apply_test_file}"},
+                "textDocument": {"uri": f"file://{APPLY_TEST_FILE}"},
                 "range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 20}},
                 "context": {"diagnostics": []},
             },
@@ -1944,25 +1882,21 @@ def test_all():
                 if isinstance(item, dict) and "title" in item.get("right", item):
                     action_item = item.get("right", item)
                     actions.append(action_item)
-
-        # Find the "Change variable 'a' type to 'String'" action
         apply_title = None
         for a in actions:
             t = a.get("title", "")
             if "Change variable" in t and "type to" in t:
                 apply_title = t
                 break
-
         if apply_title:
-            sock.settimeout(120)
-            resp = send_and_recv(
-                sock,
+            self.sock.settimeout(120)
+            resp = self.request(
                 "idealsp/codeActionApply",
-                {"title": apply_title, "uri": f"file://{apply_test_file}",
+                {"title": apply_title, "uri": f"file://{APPLY_TEST_FILE}",
                  "range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 20}}},
                 54,
             )
-            sock.settimeout(90)
+            self.sock.settimeout(90)
             applied = resp.get("result", {}).get("applied", False) if resp else False
             if applied:
                 print(f"54. codeActionApply: OK - applied '{apply_title}'")
@@ -1975,33 +1909,102 @@ def test_all():
             action_titles = [a.get("title", "?") for a in actions]
             print(f"54. codeActionApply: FAILED - no matching action found among {action_titles}")
             record_result(54, "codeActionApply", "FAIL", f"no action found among {action_titles}")
+        self.close_open(APPLY_TEST_FILE)
+        drain_notifications(self.sock, seconds=1)
+        if os.path.exists(APPLY_TEST_FILE):
+            os.remove(APPLY_TEST_FILE)
 
-        send_notification(sock, "textDocument/didClose", {"textDocument": {"uri": f"file://{apply_test_file}"}})
-        drain_notifications(sock, seconds=1)
-        if os.path.exists(apply_test_file):
-            os.remove(apply_test_file)
-    else:
-        skip_test(sock, 54, "codeActionApply")
+    # ------------------------------------------------------------------
+    # Test 51: Shutdown
+    # ------------------------------------------------------------------
 
-    # Test shutdown lifecycle
-    if should_run(51):
-        resp = send_and_recv(sock, "shutdown", {}, 51)
+    def test_51_shutdown(self):
+        self.initialize()
+        resp = self.request("shutdown", {}, 51)
         if resp and "result" in resp:
             print(f"51. Shutdown: OK")
             record_result(51, "Shutdown", "PASS")
-            send_notification(sock, "exit", {})
+            send_notification(self.sock, "exit", {})
         else:
             print(f"51. Shutdown: FAILED")
             record_result(51, "Shutdown", "FAIL")
-    else:
-        skip_test(sock, 51, "Shutdown")
 
-    sock.close()
+
+# Registry of (test number, display name, method name). Execution order follows
+# registry order; each test is independently gated by should_run().
+TESTS = [
+    (1, "Initialize", "test_01_initialize"),
+    (2, "didOpen diagnostics", "test_02_didopen"),
+    (3, "Document symbols", "test_03_document_symbols"),
+    (4, "Definition", "test_04_definition"),
+    (5, "References", "test_05_references"),
+    (6, "Workspace symbols", "test_06_workspace_symbols"),
+    (7, "Completion", "test_07_completion"),
+    (8, "Hover", "test_08_hover"),
+    (9, "Type definition", "test_09_type_definition"),
+    (10, "Implementation", "test_10_implementation"),
+    (11, "Document highlight", "test_11_document_highlight"),
+    (12, "Diagnostics", "test_12_diagnostics"),
+    (13, "Code Actions (organize imports)", "test_13_code_actions_organize"),
+    (14, "PrepareCallHierarchy getName", "test_14_prepare_call_getname"),
+    (15, "IncomingCalls getName", "test_15_incoming_getname"),
+    (16, "Cross-file references", "test_16_cross_file_refs"),
+    (17, "PrepareCallHierarchy process", "test_17_prepare_call_process"),
+    (18, "OutgoingCalls process", "test_18_outgoing_process"),
+    (19, "IncomingCalls process", "test_19_incoming_process"),
+    (20, "PrepareCallHierarchy field", "test_20_prepare_call_field"),
+    (21, "DataFlowFrom", "test_21_dataflow_from"),
+    (22, "DataFlowTo", "test_22_dataflow_to"),
+    (31, "Semantic Search fields", "test_31_semantic_fields"),
+    (32, "Semantic Search Logger", "test_32_semantic_logger"),
+    (33, "Semantic Search invalid constraint", "test_33_semantic_invalid"),
+    (23, "Inspection list all", "test_23_inspection_list_all"),
+    (24, "Inspection list search", "test_24_inspection_list_search"),
+    (25, "Inspection list non-existent", "test_25_inspection_list_missing"),
+    (26, "Inspection runByName unused", "test_26_inspection_run_unused"),
+    (27, "Inspection runByName non-existent", "test_27_inspection_run_missing"),
+    (28, "Inspection runByName all-files", "test_28_inspection_run_allfiles"),
+    (29, "Inspection runByName null-textDocument", "test_29_inspection_run_null"),
+    (30, "Code Actions", "test_30_code_actions"),
+    (34, "Signature Help", "test_34_signature_help"),
+    (35, "Formatting", "test_35_formatting"),
+    (36, "Range Formatting", "test_36_range_formatting"),
+    (37, "Rename", "test_37_rename"),
+    (371, "Cross-file Rename", "test_371_cross_file_rename"),
+    (38, "ResolveCompletionItem", "test_38_resolve_completion"),
+    (39, "PrepareTypeHierarchy ConcreteImpl", "test_39_type_hierarchy_concrete"),
+    (40, "Supertypes ConcreteImpl", "test_40_supertypes_concrete"),
+    (41, "PrepareTypeHierarchy AbstractBase", "test_41_type_hierarchy_abstract"),
+    (42, "Subtypes AbstractBase", "test_42_subtypes_abstract"),
+    (43, "Refactor extract-method", "test_43_refactor_extract"),
+    (44, "Refactor introduce-variable", "test_44_refactor_introduce"),
+    (45, "Refactor inline", "test_45_refactor_inline"),
+    (47, "ProjectStructure", "test_47_project_structure"),
+    (48, "ProjectStructure modules", "test_48_project_structure_modules"),
+    (49, "ProjectStructure source", "test_49_project_structure_source"),
+    (50, "ProjectStructure entry", "test_50_project_structure_entry"),
+    (52, "Refactor move", "test_52_refactor_move"),
+    (53, "Refactor safe-delete", "test_53_refactor_safe_delete"),
+    (54, "codeActionApply", "test_54_code_action_apply"),
+    (51, "Shutdown", "test_51_shutdown"),
+]
+
+
+def run():
+    notification_buffer.clear()
+    suite = ComprehensiveTestSuite()
+    for num, name, method_name in TESTS:
+        if should_run(num):
+            getattr(suite, method_name)()
+        else:
+            skip_test(num, name)
+    if suite.sock is not None:
+        suite.sock.close()
     print_summary()
     print("\n=== All tests completed ===")
 
 
 if __name__ == "__main__":
-    test_all()
+    run()
     if failed > 0:
         sys.exit(1)
