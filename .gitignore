@@ -33,3 +33,6 @@ server/.intellijPlatform/
 
 ### Python ###
 __pycache__/
+### JetBrains MCP Server cellophane (research, not committed) ###
+analysis/cellophane/
+analysis/*.jar
