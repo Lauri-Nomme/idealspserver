@@ -10,12 +10,15 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspContext;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.util.Metrics;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -94,6 +97,16 @@ class DiagnosticsTask implements Runnable {
     // if it is set, producing zero diagnostics for the successor task.
     Thread.interrupted();
 
+    var project = file.getProject();
+    if (!ProjectService.getInstance().waitForProjectStability(project, 60_000)) {
+      // During the import/sync window IntelliJ's daemon highlighting can get stuck inside a
+      // writer-preferring lock (see prd/document-symbols-rca.md). Rather than risk wedging the
+      // server, give up after the stability timeout; a later didChange/didSave/didOpen will
+      // re-trigger diagnostics.
+      LOG.warn("Skipping diagnostics for " + path + " — project still busy after 60s");
+      return;
+    }
+
     String token = toString();
 
     var client = LspContext.getContext(file.getProject()).getClient();
@@ -144,20 +157,36 @@ class DiagnosticsTask implements Runnable {
     var progress = new DaemonProgressIndicator();
     progress.start();
 
-    return ProgressManager.getInstance().runProcess(() -> {
-      var result = new ArrayList<HighlightInfo>();
-      HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
-        try {
-          var highlights = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-          if (highlights != null) {
-            result.addAll(highlights);
+    // Watchdog: IntelliJ's HighlightingSessionImpl asserts the inner progress IS a
+    // DaemonProgressIndicator, so self-cancellation must come from outside. If the project
+    // enters an importing/sync or write-pending state while highlighting is running, cancel
+    // the indicator so runMainPasses aborts and releases its read permits instead of being
+    // wedged against the Gradle sync's writer-preferring lock upgrade (see
+    // prd/document-symbols-rca.md).
+    var watchdog = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(() -> {
+      if (ProjectService.getInstance().isImportInProgressOrWritePending(project)) {
+        progress.cancel();
+      }
+    }, 500, 500, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+    try {
+      return ProgressManager.getInstance().runProcess(() -> {
+        var result = new ArrayList<HighlightInfo>();
+        HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+          try {
+            var highlights = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+            if (highlights != null) {
+              result.addAll(highlights);
+            }
+          } catch (Exception ex) {
+            LOG.warn("runMainPasses error", ex);
           }
-        } catch (Exception ex) {
-          LOG.warn("runMainPasses error", ex);
-        }
-      });
-      return result;
-    }, progress);
+        });
+        return result;
+      }, progress);
+    } finally {
+      watchdog.cancel(false);
+    }
   }
 
   @NotNull

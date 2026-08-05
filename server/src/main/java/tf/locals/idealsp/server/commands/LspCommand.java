@@ -9,6 +9,7 @@ import org.eclipse.lsp4j.jsonrpc.CompletableFutures;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.concurrent.CompletableFuture;
@@ -48,14 +49,16 @@ public abstract class LspCommand<R> {
     LOG.warn(getMessageSupplier().get());
     Executor executor = AppExecutorUtil.getAppExecutorService();
     if (isCancellable()) {
-      return CompletableFutures.computeAsync(executor, cancelToken -> getResult(action, cancelToken));
+      return CompletableFutures.computeAsync(executor, cancelToken -> getResult(project, action, cancelToken));
     } else {
-      return CompletableFuture.supplyAsync(() -> getResult(action, null), executor);
+      return CompletableFuture.supplyAsync(() -> getResult(project, action, null), executor);
     }
   }
 
-  private @Nullable R getResult(@NotNull Function<@Nullable CancelChecker, R> action,
+  private @Nullable R getResult(@NotNull Project project,
+                                @NotNull Function<@Nullable CancelChecker, R> action,
                                 @Nullable CancelChecker cancelToken) {
+    ProjectService.getInstance().ensureImportFinished(project);
     final var result = new AtomicReference<R>(null);
     ApplicationManager.getApplication().invokeAndWait(() -> {
       try {

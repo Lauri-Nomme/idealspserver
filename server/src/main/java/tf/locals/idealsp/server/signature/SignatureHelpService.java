@@ -29,6 +29,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.util.EditorUtil;
 import tf.locals.idealsp.server.util.LspProgressIndicator;
 import tf.locals.idealsp.server.util.MiscUtil;
@@ -58,6 +59,7 @@ final public class SignatureHelpService implements Disposable {
                                             @NotNull Position position,
                                             @NotNull CancelChecker cancelChecker) {
     LOG.info("start signature help");
+    ProjectService.getInstance().ensureImportFinished(project);
     var disposable = Disposer.newDisposable();
     try {
       var virtualFile = path.findVirtualFile();
@@ -93,7 +95,7 @@ final public class SignatureHelpService implements Disposable {
       return ProgressManager.getInstance().runProcess(
           SignatureHelpService::createSignatureHelpFromListener, new LspProgressIndicator(cancelChecker));
     } finally {
-      WriteAction.runAndWait(() -> Disposer.dispose(disposable));
+      ApplicationManager.getApplication().invokeAndWait(() -> Disposer.dispose(disposable));
       cancelChecker.checkCanceled();
     }
   }

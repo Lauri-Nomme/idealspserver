@@ -31,6 +31,7 @@ import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.symbol.util.SymbolUtil;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -60,6 +61,7 @@ final public class WorkspaceSymbolService {
   public @NotNull CompletableFuture<@NotNull Either<List<? extends SymbolInformation>, @Nullable List<? extends WorkspaceSymbol>>> runSearch(String pattern) {
     return CompletableFutures.computeAsync(AppExecutorUtil.getAppExecutorService(),
         cancelToken -> {
+          ProjectService.getInstance().ensureImportFinished(project);
           MiscUtil.waitForSmartMode(project, cancelToken);
           final var result = execute(pattern, cancelToken).stream()
               .map(WorkspaceSearchResult::symbol)

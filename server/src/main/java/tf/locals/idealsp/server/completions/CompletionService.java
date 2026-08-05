@@ -43,6 +43,7 @@ import org.eclipse.lsp4j.jsonrpc.CancelChecker;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.completions.util.IconUtil;
 import tf.locals.idealsp.server.completions.util.TextEditRearranger;
 import tf.locals.idealsp.server.completions.util.TextEditWithOffsets;
@@ -143,6 +144,7 @@ final public class CompletionService implements Disposable {
       @NotNull CancelChecker cancelChecker) {
     LOG.info("start completion for path=" + path + " position=" + position);
     try {
+      ProjectService.getInstance().ensureImportFinished(project);
       var virtualFile = path.findVirtualFile();
       if (virtualFile == null) {
         LOG.info("file not found: " + path);
@@ -164,6 +166,7 @@ final public class CompletionService implements Disposable {
   @NotNull
   public CompletionItem resolveCompletion(@NotNull CompletionItem unresolved, @NotNull CancelChecker cancelChecker) {
     LOG.info("start completion resolve");
+    ProjectService.getInstance().ensureImportFinished(project);
     final var completionResolveData =
         new Gson().fromJson(unresolved.getData().toString(), CompletionItemData.class);
     try {
@@ -243,9 +246,7 @@ final public class CompletionService implements Disposable {
       return unresolved;
     } finally {
       ApplicationManager.getApplication().invokeAndWait(
-          () -> WriteCommandAction.runWriteCommandAction(
-              project,
-              () -> Disposer.dispose(disposable)));
+          () -> Disposer.dispose(disposable));
     }
   }
 

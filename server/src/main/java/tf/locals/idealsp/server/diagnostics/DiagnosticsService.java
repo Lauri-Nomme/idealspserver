@@ -10,6 +10,7 @@ import com.intellij.util.concurrency.AppExecutorUtil;
 import org.eclipse.lsp4j.Range;
 import org.jetbrains.annotations.NotNull;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.Collections;
@@ -33,6 +34,14 @@ final public class DiagnosticsService {
   }
 
   public void launchDiagnostics(@NotNull LspPath path) {
+    if (ProjectService.getInstance().isImportInProgressOrWritePending(project)) {
+      // Skip while the project is importing/syncing: acquiring a read permit here (and later
+      // running daemon highlighting) collides with the sync's workspace-model write upgrade
+      // and can wedge the server (see prd/document-symbols-rca.md). A later didChange/didSave/
+      // didOpen re-triggers diagnostics.
+      LOG.warn("Deferring diagnostics for " + path + " while project is importing/syncing");
+      return;
+    }
     MiscUtil.invokeWithPsiFileInReadAction(project, path, (psiFile) -> {
       final var document = MiscUtil.getDocument(psiFile);
       if (document == null) {

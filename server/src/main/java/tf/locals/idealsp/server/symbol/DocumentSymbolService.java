@@ -5,7 +5,6 @@ import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -32,6 +31,7 @@ import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import tf.locals.idealsp.server.LspPath;
+import tf.locals.idealsp.server.ProjectService;
 import tf.locals.idealsp.server.util.LspProgressIndicator;
 import tf.locals.idealsp.server.util.MiscUtil;
 
@@ -55,6 +55,7 @@ final public class DocumentSymbolService {
       @NotNull LspPath path,
       @NotNull CancelChecker cancelChecker) {
     LOG.info("document symbol start");
+    ProjectService.getInstance().ensureImportFinished(project);
     final var psiFile = MiscUtil.resolvePsiFile(project, path);
     if (psiFile == null) {
       return List.of();
@@ -78,8 +79,7 @@ final public class DocumentSymbolService {
         return List.of(Either.forRight(rootSymbol));
       }, new LspProgressIndicator(cancelChecker));
     } finally {
-      WriteCommandAction.runWriteCommandAction(project, null, null,
-          () -> Disposer.dispose(disposable), psiFile);
+      ApplicationManager.getApplication().invokeAndWait(() -> Disposer.dispose(disposable));
     }
   }
 
