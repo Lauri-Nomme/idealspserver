@@ -74,6 +74,30 @@ final public class DiagnosticsService {
         .map(it -> it.getQuickFixes().collectForRange(range))
         .orElse(Collections.emptyList());
   }
+
+  /**
+   * Waits (non-blocking on the EDT) until the diagnostics/highlighting task for {@code path}
+   * has completed, so quick fixes are available before code actions are collected. Returns
+   * immediately if no diagnostics task is registered. Call from a background thread.
+   */
+  public void waitForDiagnosticsReady(@NotNull LspPath path, long timeoutMs) {
+    var state = states.get(path);
+    if (state == null) {
+      // No task yet — trigger one so quick fixes become available.
+      launchDiagnostics(path);
+      state = states.get(path);
+    }
+    if (state == null) return;
+    var deadline = System.currentTimeMillis() + timeoutMs;
+    while (!state.isDone() && System.currentTimeMillis() < deadline) {
+      try {
+        Thread.sleep(50);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+  }
   @NotNull
   private FileDiagnosticsState launchDiagnostic(@NotNull LspPath path,
                                                 @NotNull PsiFile psiFile,

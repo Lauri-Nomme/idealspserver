@@ -129,38 +129,46 @@ return t -> seen.add(keyExtractor.apply(t));
         EditorUtil.withEditor(disposable, file, range.getStart(), (editor) -> {
           if (editor == null) return;
 
-          Object actionInfo;
+          java.util.Collection<?> errorFixes = Collections.emptyList();
+          java.util.Collection<?> inspectionFixes = Collections.emptyList();
+          java.util.Collection<?> intentions = Collections.emptyList();
+
+          // getActionsToShow is unavailable in headless mode (and its signature varies by
+          // IDE version); the diagnostics-based quick fixes below are the reliable source.
+          Object actionInfo = null;
           try {
             var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
                 com.intellij.openapi.editor.Editor.class,
                 com.intellij.psi.PsiFile.class,
                 boolean.class);
             actionInfo = method.invoke(null, editor, file, true);
+          } catch (NoSuchMethodException ignored) {
+            // 3-arg variant not present in this IDE version — try 2-arg below.
           } catch (Exception e) {
+            LOG.warn("collectCodeActions: getActionsToShow (3-arg) unavailable for " + path, e);
+          }
+          if (actionInfo == null) {
             try {
               var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
                   com.intellij.openapi.editor.Editor.class,
                   com.intellij.psi.PsiFile.class);
               actionInfo = method.invoke(null, editor, file);
-            } catch (Exception e2) {
-              actionInfo = null;
+            } catch (NoSuchMethodException e) {
+              LOG.warn("collectCodeActions: getActionsToShow is not available in this IDE version");
+            } catch (Exception e) {
+              LOG.warn("collectCodeActions: getActionsToShow unavailable for " + path, e);
             }
           }
-
-          if (actionInfo == null) return;
-
-          java.util.Collection<?> errorFixes = Collections.emptyList();
-          java.util.Collection<?> inspectionFixes = Collections.emptyList();
-          java.util.Collection<?> intentions = Collections.emptyList();
-
-          try {
-            var errorFixesField = actionInfo.getClass().getField("errorFixesToShow");
-            var inspectionFixesField = actionInfo.getClass().getField("inspectionFixesToShow");
-            var intentionsField = actionInfo.getClass().getField("intentionsToShow");
-            errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo);
-            inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo);
-            intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
-          } catch (Exception ignored) {}
+          if (actionInfo != null) {
+            try {
+              var errorFixesField = actionInfo.getClass().getField("errorFixesToShow");
+              var inspectionFixesField = actionInfo.getClass().getField("inspectionFixesToShow");
+              var intentionsField = actionInfo.getClass().getField("intentionsToShow");
+              errorFixes = (java.util.Collection<?>) errorFixesField.get(actionInfo);
+              inspectionFixes = (java.util.Collection<?>) inspectionFixesField.get(actionInfo);
+              intentions = (java.util.Collection<?>) intentionsField.get(actionInfo);
+            } catch (Exception ignored) {}
+          }
 
           final var quickFixDescriptors = diagnostics().getQuickFixes(path, range);
 
@@ -195,9 +203,12 @@ return t -> seen.add(keyExtractor.apply(t));
 
   @NotNull
   public CompletableFuture<List<CodeAction>> getCodeActionsAsync(@NotNull LspPath path, @NotNull Range range) {
-    LOG.warn("getCodeActionsAsync: " + path + " range=" + range);
     return CompletableFuture.supplyAsync(() -> {
       MiscUtil.waitForSmartMode(project);
+      // Ensure the diagnostics/highlighting task for this file has completed so its quick
+      // fixes are registered before we collect actions (avoids a race where the code-action
+      // request arrives mid-highlighting and finds no quick fixes).
+      diagnostics().waitForDiagnosticsReady(path, 10_000);
       List<CodeAction> result = new ArrayList<>();
       try {
         ApplicationManager.getApplication().invokeAndWait(() -> {

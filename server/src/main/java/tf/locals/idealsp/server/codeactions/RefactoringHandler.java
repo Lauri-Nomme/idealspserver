@@ -165,14 +165,23 @@ public final class RefactoringHandler {
             return method.getDefaultValue();
           });
 
-      // Call VariableExtractor.introduce directly, bypassing all dialog/context code
+      // Call VariableExtractor.introduce directly, bypassing all dialog/context code.
+      // PSI mutation must run inside a command/undo-transparent action, so wrap the
+      // invocation in a WriteCommandAction (matches applyMove).
       PsiExpression[] occurrences = (PsiExpression[]) java.lang.reflect.Array.newInstance(PsiExpression.class, 1);
       occurrences[0] = expression;
-      Object result = Class.forName("com.intellij.refactoring.introduceVariable.VariableExtractor")
+      var resultRef = new com.intellij.openapi.util.Ref<Object>();
+      Method introduce = Class.forName("com.intellij.refactoring.introduceVariable.VariableExtractor")
           .getMethod("introduce", Project.class, PsiExpression.class, Editor.class,
-              PsiElement.class, PsiExpression[].class, settingsClass)
-          .invoke(null, project, expression, editor, anchor, occurrences, settings);
-      return result != null;
+              PsiElement.class, PsiExpression[].class, settingsClass);
+      com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
+        try {
+          resultRef.set(introduce.invoke(null, project, expression, editor, anchor, occurrences, settings));
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+      });
+      return resultRef.get() != null;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
       LOG.warn("applyIntroduceVariable error: " + cause);
@@ -199,19 +208,44 @@ public final class RefactoringHandler {
     try {
       int offset = editor.getCaretModel().getOffset();
       PsiElement element = com.intellij.codeInsight.TargetElementUtil.findTargetElement(editor, offset);
-      if (element == null) return false;
+      if (element == null) {
+        PsiElement leaf = file.findElementAt(offset);
+        LOG.warn("applyInline: findTargetElement returned null at offset " + offset
+            + " (leaf=" + (leaf == null ? "null" : leaf.getClass().getSimpleName()) + ")");
+        if (leaf != null) {
+          element = com.intellij.psi.util.PsiTreeUtil.getParentOfType(leaf,
+              com.intellij.psi.PsiReferenceExpression.class,
+              com.intellij.psi.PsiMethodCallExpression.class,
+              com.intellij.psi.PsiLocalVariable.class,
+              com.intellij.psi.PsiVariable.class);
+        }
+      }
+      if (element == null) {
+        LOG.warn("applyInline: no target element at offset " + offset);
+        return false;
+      }
 
       for (com.intellij.lang.refactoring.InlineActionHandler handler :
            com.intellij.lang.refactoring.InlineActionHandler.EP_NAME.getExtensionList()) {
         if (handler.isEnabledOnElement(element, editor)) {
-          handler.inlineElement(project, editor, element);
-          return true;
+          var resultRef = new com.intellij.openapi.util.Ref<Boolean>();
+          final var target = element;
+          com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
+            try {
+              handler.inlineElement(project, editor, target);
+              resultRef.set(Boolean.TRUE);
+            } catch (Exception ex) {
+              throw new RuntimeException(ex);
+            }
+          });
+          return Boolean.TRUE.equals(resultRef.get());
         }
       }
+      LOG.warn("applyInline: no InlineActionHandler enabled for " + element.getClass().getSimpleName());
       return false;
     } catch (Exception e) {
       Throwable cause = e instanceof java.lang.reflect.InvocationTargetException ? e.getCause() : e;
-      LOG.warn("applyInline error: " + cause);
+      LOG.warn("applyInline error: " + cause, cause);
       return false;
     }
   }

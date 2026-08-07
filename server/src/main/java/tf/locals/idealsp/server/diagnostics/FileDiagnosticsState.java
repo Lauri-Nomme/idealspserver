@@ -28,6 +28,11 @@ final class FileDiagnosticsState {
     task.cancel(false);
   }
 
+  /** True once the underlying highlighting task has finished (or was cancelled). */
+  boolean isDone() {
+    return task.isDone();
+  }
+
   public @NotNull QuickFixRegistry getQuickFixes() {
     return quickFixes;
   }

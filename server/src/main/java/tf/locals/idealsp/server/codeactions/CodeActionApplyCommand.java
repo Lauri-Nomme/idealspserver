@@ -1,5 +1,6 @@
 package tf.locals.idealsp.server.codeactions;
 
+import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
@@ -25,6 +26,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -178,43 +180,53 @@ public class CodeActionApplyCommand extends LspCommand<ApplyWorkspaceEditRespons
     private @Nullable Object findActionByTitle(@NotNull Project project,
                                                 @NotNull Editor editor,
                                                 @NotNull PsiFile psiFile) {
-        Object actionInfo;
-        try {
-            var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
-                com.intellij.openapi.editor.Editor.class,
-                com.intellij.psi.PsiFile.class,
-                boolean.class);
-            actionInfo = method.invoke(null, editor, psiFile, true);
-        } catch (Exception e) {
-            try {
-                var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
-                    com.intellij.openapi.editor.Editor.class,
-                    com.intellij.psi.PsiFile.class);
-                actionInfo = method.invoke(null, editor, psiFile);
-            } catch (Exception e2) {
-                actionInfo = null;
-            }
+        // Prefer the already-registered diagnostics quick fixes: they are computed by the
+        // diagnostics pass and require no extra full highlighting pass (getActionsToShow runs
+        // a synchronous re-highlight which is very slow / may time out clients).
+        var registered = diagnostics(project).getQuickFixes(path, range);
+        var action = matchByTitle(registered, project, editor, psiFile);
+        if (action != null) {
+            return action;
         }
 
+        // Fallback: fresh ShowIntentionsPass.getActionsToShow (runs a highlighting pass).
+        var actionInfo = actionsToShow(editor, psiFile);
         if (actionInfo == null) {
             return null;
         }
-
-        var errorFixes = getField(actionInfo, "errorFixesToShow");
-        var inspectionFixes = getField(actionInfo, "inspectionFixesToShow");
-        var intentions = getField(actionInfo, "intentionsToShow");
-
-        Stream.of(errorFixes, inspectionFixes, intentions)
+        return Stream.of("errorFixesToShow", "inspectionFixesToShow", "intentionsToShow")
+            .map(field -> getField(actionInfo, field))
             .flatMap(Collection::stream)
-            .forEach(d -> tryInitDescriptor(d, project, editor, psiFile));
-
-        return Stream.of(errorFixes, inspectionFixes, intentions)
-            .flatMap(Collection::stream)
+            .peek(d -> tryInitDescriptor(d, project, editor, psiFile))
             .map(it -> getAction(it))
             .filter(Objects::nonNull)
             .filter(it -> title.equals(tryGetText(it)))
             .findFirst()
             .orElse(null);
+    }
+
+    private @Nullable Object matchByTitle(@NotNull List<HighlightInfo.IntentionActionDescriptor> descriptors,
+                                          @NotNull Project project,
+                                          @NotNull Editor editor,
+                                          @NotNull PsiFile psiFile) {
+        return descriptors.stream()
+            .peek(d -> tryInitDescriptor(d, project, editor, psiFile))
+            .map(it -> getAction(it))
+            .filter(Objects::nonNull)
+            .filter(it -> title.equals(tryGetText(it)))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private @Nullable Object actionsToShow(@NotNull Editor editor, @NotNull PsiFile psiFile) {
+        try {
+            var method = ShowIntentionsPass.class.getMethod("getActionsToShow",
+                com.intellij.openapi.editor.Editor.class,
+                com.intellij.psi.PsiFile.class);
+            return method.invoke(null, editor, psiFile);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void invokeAction(@NotNull Project project,

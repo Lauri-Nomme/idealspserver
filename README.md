@@ -31,10 +31,11 @@ Custom request methods registered via `@JsonRequest` in `IdeaLspServer`:
 - ✅ **Semantic Search** - `textDocument/semanticSearch` (IDEA Structural Search API)
 - ✅ **Inspections** - `$/inspection/list` and `$/inspection/runByName` (including
   project-wide all-files runs)
-- ✅ **Refactoring** - `idealsp/refactor`: extract-method, move, safe-delete
-  (introduce-variable and inline currently fail)
+- ✅ **Refactoring** - `idealsp/refactor`: extract-method, move, safe-delete,
+  introduce-variable, inline
 - ✅ **Project Structure** - `idealsp/projectStructure`
-- ⚠️ **Code Action Apply** - `idealsp/codeActionApply` (currently no matching action found)
+- ✅ **Code Action Apply** - `idealsp/codeActionApply` (quick fixes applied via the
+  registered diagnostics fixes, e.g. "Change variable type", without a full re-highlight)
 - ✅ **Session Management** - server-side project keepalive (2h TTL) and multi-client
   refcounting; extended `initialize` response with server info/version/status
 
@@ -54,9 +55,6 @@ plugins.set(listOf("java", "com.intellij.java", "org.jetbrains.kotlin"))
 ```
 
 ### Known Issues
-- **Refactor introduce-variable / inline** - refactoring fails (`IncorrectOperationException:
-  Must not change PSI outside command or undo-transparent action`)
-- **codeActionApply** - no matching action found among available code actions
 - **Cross-file rename** - returns no result
 - **Inspection all-files run** - times out (project-wide inspection is slow)
 - Several comprehensive-suite timeouts in CI are environment-related (slow headless runner);
