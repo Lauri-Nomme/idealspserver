@@ -205,8 +205,12 @@ instead of the generic `"Internal error"`. So the client sees the clean, retryab
    If reflection fails, `LOG.warn` and treat as "not pending" (gate degrades).
 3. **`GradleSyncListener.TOPIC`** (`org.jetbrains.plugins.gradle.service.syncAction`) —
    subscribed **reflectively** (the Gradle plugin is a bundled plugin, not on the compile
-   classpath; the plugin dependency `<depends>com.intellij.gradle</depends>` makes the class
-   visible at runtime). `onModelFetchPhaseCompleted`/`onModelFetchCompleted` -> add,
+   classpath). The class is loaded at runtime from the `com.intellij.gradle` plugin's own
+   classloader via `PluginManagerCore.getPlugins()`; a `<depends>com.intellij.gradle</depends>`
+   declaration is deliberately NOT used because it breaks the light test framework's
+   `codeInsight.parameterInfo.listener` extension-point registration (SignatureHelpServiceTest
+   times out waiting for `MyParameterInfoListener` events).
+   `onModelFetchPhaseCompleted`/`onModelFetchCompleted` -> add,
    `onProjectLoadedActionCompleted`/`onModelFetchFailed` -> remove. This is the **whole-sync**
    signal: it marks the project as importing from the *start of model fetch* (when NO write
    is pending yet) until the sync fully completes, closing the gap where only signal #2 is

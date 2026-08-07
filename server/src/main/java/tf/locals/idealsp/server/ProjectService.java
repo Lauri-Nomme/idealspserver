@@ -1,7 +1,10 @@
 package tf.locals.idealsp.server;
 
 import com.intellij.ide.impl.OpenProjectTask;
+import com.intellij.ide.plugins.IdeaPluginDescriptor;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
@@ -28,7 +31,8 @@ import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImp
 import com.intellij.util.concurrency.AppExecutorUtil;
 import tf.locals.idealsp.server.util.MiscUtil;
 
-public class ProjectService {
+@Service(Service.Level.APP)
+final public class ProjectService {
   private final static Logger LOG = Logger.getInstance(ProjectService.class);
 
   private final Map<LspPath, String> projectHashes = new HashMap<>();
@@ -49,14 +53,18 @@ public class ProjectService {
     // its post-open setup (waitUntilInitialized/ensureSourceRoots), which can be slower than
     // the sync's own early model-fetch events. Without this, the initial sync's events are
     // missed and importingProjects stays empty during the whole sync window.
-    ApplicationManager.getApplication().getMessageBus().connect().subscribe(
-        ProjectManager.TOPIC,
-        new ProjectManagerListener() {
-          @Override
-          public void projectOpened(@NotNull Project project) {
-            registerGradleSyncGate(project);
-          }
-        });
+    try {
+      ApplicationManager.getApplication().getMessageBus().connect().subscribe(
+          ProjectManager.TOPIC,
+          new ProjectManagerListener() {
+            @Override
+            public void projectOpened(@NotNull Project project) {
+              registerGradleSyncGate(project);
+            }
+          });
+    } catch (Exception e) {
+      LOG.warn("Failed to subscribe Gradle sync gate at ProjectService construction", e);
+    }
   }
 
   @NotNull
@@ -413,7 +421,7 @@ public class ProjectService {
   @SuppressWarnings("unchecked")
   private void registerGradleSyncGate(@NotNull Project project) {
     try {
-      Class<?> listenerClass = Class.forName("org.jetbrains.plugins.gradle.service.syncAction.GradleSyncListener");
+      Class<?> listenerClass = findGradleSyncListenerClass();
       var topic = (com.intellij.util.messages.Topic<Object>) listenerClass.getField("TOPIC").get(null);
       var handler = java.lang.reflect.Proxy.newProxyInstance(
           listenerClass.getClassLoader(),
@@ -445,8 +453,26 @@ public class ProjectService {
             return null;
           });
       project.getMessageBus().connect().subscribe(topic, handler);
+      LOG.warn("Gradle sync gate registered for " + project.getName());
     } catch (Exception e) {
       LOG.warn("Gradle plugin not available; sync gate relies on the write-pending check", e);
     }
+  }
+
+  /**
+   * Locates the {@code GradleSyncListener} class via the bundled {@code com.intellij.gradle}
+   * plugin's own classloader. A {@code <depends>} declaration is intentionally NOT used: it
+   * breaks the light test framework's parameter-info extension-point registration.
+   */
+  private static @NotNull Class<?> findGradleSyncListenerClass() throws ClassNotFoundException {
+    for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
+      if ("com.intellij.gradle".equals(descriptor.getPluginId().getIdString())) {
+        var loader = descriptor.getPluginClassLoader();
+        if (loader != null) {
+          return Class.forName("org.jetbrains.plugins.gradle.service.syncAction.GradleSyncListener", true, loader);
+        }
+      }
+    }
+    throw new ClassNotFoundException("com.intellij.gradle plugin is not loaded");
   }
 }
