@@ -90,7 +90,7 @@ final public class InspectionService {
                     LOG.warn("Failed to load info: " + shortName, e);
                 }
             }
-            LOG.info("listInspections: query=" + query + ", count=" + result.size());
+            LOG.warn("listInspections: query=" + query + ", count=" + result.size());
             return result;
         });
     }
@@ -139,6 +139,9 @@ final public class InspectionService {
                     try {
                         var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
                         if (all != null) highlights.addAll(all);
+                    } catch (com.intellij.openapi.progress.ProcessCanceledException pce) {
+                        // control-flow exception — rethrow, do not log it as an error
+                        throw pce;
                     } catch (Exception ex) {
                         LOG.warn("runMainPasses error", ex);
                     }
@@ -151,6 +154,8 @@ final public class InspectionService {
                     InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
                             __ -> new InspectionProfileWrapper(effectiveProfile),
                             highlightRunner);
+                } catch (com.intellij.openapi.progress.ProcessCanceledException pce) {
+                    throw pce;
                 } catch (Exception e) {
                     LOG.warn("runByName: single-profile daemon failed for " + name + ", falling back to filter mode", e);
                     highlightRunner.run();
@@ -161,14 +166,14 @@ final public class InspectionService {
         }, progress);
 
         var result = diagsRef.get() != null ? diagsRef.get() : List.<Diagnostic>of();
-        LOG.info("runByName: " + name + " found " + result.size() + " problems" +
+        LOG.warn("runByName: " + name + " found " + result.size() + " problems" +
                 (effectiveProfile != null ? " [single-tool profile]" : " [filter mode]"));
         return result;
     }
 
     @NotNull
     public List<Diagnostic> runByNameOnAllFiles(@NotNull String name) {
-        LOG.info("runByNameOnAllFiles: starting for inspection '" + name + "'");
+        LOG.warn("runByNameOnAllFiles: starting for inspection '" + name + "'");
         InspectionToolWrapper<?, ?> wrapper = lookupWrapper(name);
         if (wrapper == null) {
             LOG.warn("runByNameOnAllFiles: inspection not found: " + name);
@@ -185,63 +190,136 @@ final public class InspectionService {
         var allDiags = new ArrayList<Diagnostic>();
         var fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
         var psiManager = PsiManager.getInstance(project);
-        LOG.info("runByNameOnAllFiles: iterating files in project content");
+        LOG.warn("runByNameOnAllFiles: iterating files in project content");
+
+        // Headless daemon passes can block far longer than any single file should take:
+        // ExternalToolPass.getInfos busy-waits up to 60s per file for annotator results that
+        // never arrive once the inspection itself saturates the app executor pool (which also
+        // drains the MergingUpdateQueue that completes those annotators). An unbounded
+        // project-wide run therefore grinds for minutes per file and wedges the server for
+        // every request after it. Bound the whole run with a wall-clock budget: when it is
+        // exceeded a watchdog thread cancels the shared progress indicator, the running pass
+        // throws ProcessCanceledException at its next checkCanceled() call, and the loop
+        // stops, returning partial results.
+        var cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var currentProgress = new java.util.concurrent.atomic.AtomicReference<DaemonProgressIndicator>();
+        long runStartNanos = System.nanoTime();
+        long budgetMs = 8_000L;
+        long budgetNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(budgetMs);
+
+        var watchdog = new Thread(() -> {
+            try {
+                while (!cancelled.get() && System.nanoTime() - runStartNanos < budgetNanos) {
+                    Thread.sleep(100);
+                }
+                if (cancelled.get()) return;
+                LOG.warn("runByNameOnAllFiles: budget (" + budgetMs + "ms) exceeded, cancelling inspection");
+                cancelled.set(true);
+                var p = currentProgress.get();
+                if (p != null) p.cancel();
+            } catch (InterruptedException ignored) {
+            }
+        }, "idealsp-inspection-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
 
         var filesProcessed = new java.util.concurrent.atomic.AtomicInteger(0);
-        fileIndex.iterateContent((ContentIterator) fileOrDir -> {
-            ProgressManager.checkCanceled();
-            if (fileOrDir.isDirectory()) return true;
+        try {
+            fileIndex.iterateContent((ContentIterator) fileOrDir -> {
+                if (cancelled.get()) return false;
+                ProgressManager.checkCanceled();
+                if (fileOrDir.isDirectory()) return true;
 
-            PsiFile psiFile = ReadAction.compute(() -> psiManager.findFile(fileOrDir));
-            if (psiFile == null) return true;
+                PsiFile psiFile = ReadAction.compute(() -> psiManager.findFile(fileOrDir));
+                if (psiFile == null) return true;
 
-            var doc = FileDocumentManager.getInstance().getDocument(fileOrDir);
-            if (doc == null) return true;
+                // Only run on files the inspection targets. Running the full daemon on other
+                // languages (e.g. TypeScript) makes their annotators query external language
+                // services (JS/TS service queue) that do not answer in headless mode, blocking
+                // each such file for 20s and turning the whole loop into an endless grind.
+                if (!isSupportedFile(psiFile, wrapper)) return true;
 
-            var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
-            var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
-            var range = ProperTextRange.create(0, doc.getTextLength());
+                var doc = FileDocumentManager.getInstance().getDocument(fileOrDir);
+                if (doc == null) return true;
 
-            var progress = new DaemonProgressIndicator();
-            progress.start();
+                var context = ReadAction.compute(() -> CodeInsightContextUtil.getCodeInsightContext(psiFile));
+                var colorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
+                var range = ProperTextRange.create(0, doc.getTextLength());
 
-            var diagsRef = new AtomicReference<List<Diagnostic>>();
-            ProgressManager.getInstance().runProcess(() -> {
-                Runnable highlightRunner = () -> {
-                    var highlights = new ArrayList<HighlightInfo>();
-                    HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
-                        try {
-                            var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
-                            if (all != null) highlights.addAll(all);
-                        } catch (Exception ex) {
-                            LOG.warn("runMainPasses error", ex);
+                var progress = new DaemonProgressIndicator();
+                progress.start();
+                currentProgress.set(progress);
+                try {
+                    var diagsRef = new AtomicReference<List<Diagnostic>>();
+                    ProgressManager.getInstance().runProcess(() -> {
+                        Runnable highlightRunner = () -> {
+                            var highlights = new ArrayList<HighlightInfo>();
+                            HighlightingSessionImpl.runInsideHighlightingSession(psiFile, context, colorsScheme, range, false, session -> {
+                                try {
+                                    var all = DaemonCodeAnalyzerEx.getInstanceEx(project).runMainPasses(psiFile, doc, progress);
+                                    if (all != null) highlights.addAll(all);
+                                } catch (com.intellij.openapi.progress.ProcessCanceledException pce) {
+                                    // control-flow exception — abort the whole inspection rather
+                                    // than grinding file-by-file through long annotator waits
+                                    throw pce;
+                                } catch (Exception ex) {
+                                    LOG.warn("runMainPasses error", ex);
+                                }
+                            });
+                            diagsRef.set(extractDiagnostics(highlights, doc, name));
+                        };
+
+                        if (effectiveProfile != null) {
+                            try {
+                                InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
+                                        __ -> new InspectionProfileWrapper(effectiveProfile),
+                                        highlightRunner);
+                            } catch (com.intellij.openapi.progress.ProcessCanceledException pce) {
+                                throw pce;
+                            } catch (Exception e) {
+                                LOG.warn("runByNameOnAllFiles: single-profile daemon failed for " + name + ", falling back to filter mode", e);
+                                highlightRunner.run();
+                            }
+                        } else {
+                            highlightRunner.run();
                         }
-                    });
-                    diagsRef.set(extractDiagnostics(highlights, doc, name));
-                };
+                    }, progress);
 
-                if (effectiveProfile != null) {
-                    try {
-                        InspectionProfileWrapper.runWithCustomInspectionWrapper(psiFile,
-                                __ -> new InspectionProfileWrapper(effectiveProfile),
-                                highlightRunner);
-                    } catch (Exception e) {
-                        LOG.warn("runByNameOnAllFiles: single-profile daemon failed for " + name + ", falling back to filter mode", e);
-                        highlightRunner.run();
-                    }
-                } else {
-                    highlightRunner.run();
+                    var result = diagsRef.get();
+                    if (result != null) allDiags.addAll(result);
+                    filesProcessed.incrementAndGet();
+                } catch (com.intellij.openapi.progress.ProcessCanceledException pce) {
+                    // budget watchdog fired — stop the loop and return partial results
+                    cancelled.set(true);
+                    LOG.warn("runByNameOnAllFiles: cancelled after " + filesProcessed.get() + " files, returning partial results");
+                } finally {
+                    currentProgress.set(null);
                 }
-            }, progress);
+                return !cancelled.get();
+            });
+        } finally {
+            cancelled.set(true);
+        }
 
-            var result = diagsRef.get();
-            if (result != null) allDiags.addAll(result);
-            filesProcessed.incrementAndGet();
-            return true;
-        });
-
-        LOG.info("runByNameOnAllFiles: processed " + filesProcessed.get() + " files, found " + allDiags.size() + " problems across all files");
+        LOG.warn("runByNameOnAllFiles: processed " + filesProcessed.get() + " files, found " + allDiags.size() + " problems across all files");
         return allDiags;
+    }
+
+    /**
+     * Whether the inspection run should process {@code psiFile}. The all-files inspection
+     * runs the full daemon pass on each file, which executes every annotator of the file's
+     * language; on non-Java files (TypeScript, etc.) those annotators query external language
+     * services that are unavailable in headless mode and block for 20s each. Such files are
+     * skipped so the project-wide run stays bounded.
+     */
+    private static boolean isSupportedFile(@NotNull PsiFile psiFile, @NotNull InspectionToolWrapper<?, ?> wrapper) {
+        var tool = wrapper.getTool();
+        if (tool instanceof com.intellij.codeInspection.LocalInspectionTool local) {
+            try {
+                if (!local.isAvailableForFile(psiFile)) return false;
+            } catch (Exception ignored) {}
+        }
+        return psiFile.getFileType() == com.intellij.ide.highlighter.JavaFileType.INSTANCE;
     }
 
     @NotNull

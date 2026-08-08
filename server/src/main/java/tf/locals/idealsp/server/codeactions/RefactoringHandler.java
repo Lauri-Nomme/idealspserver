@@ -269,25 +269,45 @@ public final class RefactoringHandler {
 
       String targetPath = targetPackageUri;
       if (targetPath.startsWith("file://")) targetPath = targetPath.substring(7);
-      com.intellij.openapi.vfs.VirtualFile targetDirVf =
-          com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByPath(targetPath);
-      if (targetDirVf == null || !targetDirVf.isDirectory()) {
+
+      // The target directory is usually created by the client just before the move. Refresh the
+      // path so the VFS sees it; fall back to creating it explicitly so headless clients do not
+      // depend on file-watcher events to register the new directory in PSI.
+      var lfs = com.intellij.openapi.vfs.LocalFileSystem.getInstance();
+      com.intellij.openapi.vfs.VirtualFile targetDirVf = lfs.refreshAndFindFileByPath(targetPath);
+      PsiDirectory targetDir = null;
+      if (targetDirVf != null && targetDirVf.isDirectory()) {
+        targetDir = com.intellij.psi.PsiManager.getInstance(project).findDirectory(targetDirVf);
+      }
+      if (targetDir == null) {
+        var created = com.intellij.openapi.vfs.VfsUtil.createDirectoryIfMissing(targetPath);
+        if (created != null) targetDir = com.intellij.psi.PsiManager.getInstance(project).findDirectory(created);
+      }
+      if (targetDir == null) {
         LOG.warn("applyMove: target directory not found: " + targetPackageUri);
         return false;
       }
-
-      PsiDirectory targetDir = com.intellij.psi.PsiManager.getInstance(project).findDirectory(targetDirVf);
-      if (targetDir == null) return false;
+      final PsiDirectory finalTargetDir = targetDir;
+      final PsiClass finalPsiClass = psiClass;
 
       // MoveClassesOrPackagesUtil.doMoveClass handles the entire move:
       // moves the .java file to the target directory, updates the package declaration,
       // and updates all references across the project.
       // Must run inside a write action.
       var resultRef = new com.intellij.openapi.util.Ref<com.intellij.psi.PsiClass>();
+      String fileName = psiClass.getContainingFile().getName();
       com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project, () -> {
         try {
+          // A stale VFS entry from a previous move (the client deleted the target file on disk
+          // without the watcher noticing) makes doMoveClass fail with "file already exists".
+          // Drop such a target first so the move is idempotent in headless environments.
+          PsiFile stale = finalTargetDir.findFile(fileName);
+          if (stale != null) {
+            LOG.warn("applyMove: removing stale target " + stale.getVirtualFile().getPath());
+            stale.delete();
+          }
           resultRef.set(com.intellij.refactoring.move.moveClassesOrPackages.MoveClassesOrPackagesUtil.doMoveClass(
-              psiClass, targetDir));
+              finalPsiClass, finalTargetDir));
         } catch (Exception ex) {
           LOG.warn("applyMove: doMoveClass failed: " + ex, ex);
         }

@@ -1,17 +1,12 @@
 package tf.locals.idealsp.server.rename;
 
 import com.intellij.codeInsight.TargetElementUtil;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.WriteAction;
-import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.Segment;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.rename.RenameProcessor;
 import com.intellij.refactoring.rename.RenamePsiElementProcessor;
@@ -28,7 +23,6 @@ import tf.locals.idealsp.server.util.MiscUtil;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -50,61 +44,6 @@ public class RenameCommand extends LspCommand<WorkspaceEdit> {
   @Override
   protected boolean isCancellable() {
     return false;
-  }
-
-  @Override
-  public @NotNull CompletableFuture<@Nullable WorkspaceEdit> runAsync(@NotNull com.intellij.openapi.project.Project project, @NotNull LspPath path) {
-    // First, compute the WorkspaceEdit (read action via parent)
-    var editFuture = super.runAsync(project, path);
-    // Apply the rename server-side asynchronously so it doesn't block the LSP response.
-    // The server-side apply is a side effect; the client receives the WorkspaceEdit immediately.
-    editFuture.thenAcceptAsync(edit -> {
-      if (edit == null) return;
-      try {
-        applyEdit(project, edit);
-      } catch (Throwable t) {
-        LOG.warn("RenameCommand: server-side apply failed", t);
-      }
-    }, ForkJoinPool.commonPool());
-    return editFuture;
-  }
-
-  private void applyEdit(@NotNull com.intellij.openapi.project.Project project, @NotNull WorkspaceEdit edit) {
-    LOG.warn("RenameCommand.applyEdit: applying rename server-side on thread " + Thread.currentThread().getName());
-    ApplicationManager.getApplication().invokeAndWait(() -> {
-      CommandProcessor.getInstance().executeCommand(project, () -> {
-        WriteAction.run(() -> {
-          var psiDocManager = PsiDocumentManager.getInstance(project);
-          var fileDocManager = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance();
-          for (var editOrResource : edit.getDocumentChanges()) {
-            if (editOrResource.isLeft()) {
-              var textDocEdit = editOrResource.getLeft();
-              var vFile = LspPath.fromLspUri(textDocEdit.getTextDocument().getUri()).findVirtualFile();
-              if (vFile == null) continue;
-              var psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(vFile);
-              if (psiFile == null) continue;
-              var doc = MiscUtil.getDocument(psiFile);
-              if (doc == null) continue;
-              var edits = new java.util.ArrayList<>(textDocEdit.getEdits());
-              // Apply edits in reverse order to preserve offsets
-              edits.sort((a, b) -> {
-                int lineDiff = Integer.compare(b.getRange().getStart().getLine(), a.getRange().getStart().getLine());
-                if (lineDiff != 0) return lineDiff;
-                return Integer.compare(b.getRange().getStart().getCharacter(), a.getRange().getStart().getCharacter());
-              });
-              for (var textEdit : edits) {
-                int startOffset = MiscUtil.positionToOffset(doc, textEdit.getRange().getStart());
-                int endOffset = MiscUtil.positionToOffset(doc, textEdit.getRange().getEnd());
-                doc.replaceString(startOffset, endOffset, textEdit.getNewText());
-              }
-              psiDocManager.commitDocument(doc);
-              fileDocManager.saveDocument(doc);
-            }
-          }
-          LOG.warn("RenameCommand.applyEdit: rename applied successfully");
-        });
-      }, "Rename", null);
-    }, ModalityState.nonModal());
   }
 
   @Override

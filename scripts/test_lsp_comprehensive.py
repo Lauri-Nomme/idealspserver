@@ -1348,7 +1348,7 @@ class ComprehensiveTestSuite:
             "textDocument/rename",
             {
                 "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
-                "position": {"line": 47, "character": 30},
+                "position": {"line": 53, "character": 30},
                 "newName": "renamedLOG",
             },
             37,
@@ -1401,7 +1401,7 @@ class ComprehensiveTestSuite:
             "textDocument/rename",
             {
                 "textDocument": {"uri": f"file://{LSP_SERVER_FILE}"},
-                "position": {"line": 214, "character": 27},
+                "position": {"line": 243, "character": 28},
                 "newName": "renamedStop",
             },
             371,
