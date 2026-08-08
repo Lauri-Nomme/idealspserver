@@ -243,6 +243,18 @@ public class MiscUtil {
         new RuntimeException("[" + operation + "] " + detail));
   }
 
+  /**
+   * Runs the given block with IntelliJ's "alternative resolve" mode enabled.
+   * This forces PSI references to resolve even when the file-based/stub index is
+   * not yet fully built (e.g. shortly after server start), which otherwise causes
+   * find-usages / rename / type-definition searches to silently miss cross-file usages.
+   */
+  public static <T> T withAlternativeResolve(@NotNull Project project, @NotNull Supplier<T> block) {
+    final var ref = new Ref<T>();
+    DumbService.getInstance(project).withAlternativeResolveEnabled(() -> ref.set(block.get()));
+    return ref.get();
+  }
+
   public static void waitForSmartMode(@NotNull Project project) {
     waitForSmartMode(project, null);
   }

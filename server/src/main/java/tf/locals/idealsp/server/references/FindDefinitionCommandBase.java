@@ -78,27 +78,29 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
     var definitionsRef = new Ref<List<? extends LocationLink>>();
     var disposable = Disposer.newDisposable();
     try {
-      EditorUtil.withEditor(disposable, file, pos, editor -> {
-        // Now actually call the subclass's findDefinitions() method - this was the bug!
-        // Previously we just used originalElem as targetElement and never called findDefinitions()
-        var targetElements = findDefinitions(editor, offset).collect(Collectors.toList());
+      EditorUtil.withEditor(disposable, file, pos, editor ->
+          MiscUtil.withAlternativeResolve(project, () -> {
+            // Now actually call the subclass's findDefinitions() method - this was the bug!
+            // Previously we just used originalElem as targetElement and never called findDefinitions()
+            var targetElements = findDefinitions(editor, offset).collect(Collectors.toList());
 
-        var definitions = targetElements.stream()
-            .filter(targetElem -> targetElem != null && targetElem.getContainingFile() != null)
-            .map(targetElem -> {
-              final var loc = findSourceLocation(ctx.getProject(), targetElem);
-              if (loc != null) {
-                return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
-              } else {
-                Document targetDoc = targetElem.getContainingFile().equals(file)
-                    ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
-                return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
-              }
-            })
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
-        definitionsRef.set((List) definitions);
-      });
+            var definitions = targetElements.stream()
+                .filter(targetElem -> targetElem != null && targetElem.getContainingFile() != null)
+                .map(targetElem -> {
+                  final var loc = findSourceLocation(ctx.getProject(), targetElem);
+                  if (loc != null) {
+                    return new LocationLink(loc.getUri(), loc.getRange(), loc.getRange(), originalRange);
+                  } else {
+                    Document targetDoc = targetElem.getContainingFile().equals(file)
+                        ? doc : MiscUtil.getDocument(targetElem.getContainingFile());
+                    return MiscUtil.psiElementToLocationLink(targetElem, targetDoc, originalRange);
+                  }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+            definitionsRef.set((List) definitions);
+            return null;
+          }));
     } finally {
       Disposer.dispose(disposable);
     }

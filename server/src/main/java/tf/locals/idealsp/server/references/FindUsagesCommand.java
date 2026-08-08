@@ -63,7 +63,7 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
 
     var disposable = Disposer.newDisposable();
     try {
-      return EditorUtil.computeWithEditor(disposable, file, pos, editor -> {
+      return EditorUtil.computeWithEditor(disposable, file, pos, editor -> MiscUtil.withAlternativeResolve(project, () -> {
         // Find the declaration element at cursor position
         var target = TargetElementUtil.findTargetElement(editor, TargetElementUtil.getInstance().getAllAccepted());
 
@@ -127,7 +127,7 @@ public class FindUsagesCommand extends LspCommand<List<? extends Location>> {
             .filter(Objects::nonNull)
             .distinct()
             .collect(Collectors.toList());
-      });
+      }));
     } finally {
       Disposer.dispose(disposable);
     }

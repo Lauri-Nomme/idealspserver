@@ -57,7 +57,7 @@ public class RenameCommand extends LspCommand<WorkspaceEdit> {
     var elementRef = new Ref<PsiElement>();
     final var disposable = Disposer.newDisposable();
     try {
-      EditorUtil.withEditor(disposable, file, pos, editor -> {
+      EditorUtil.withEditor(disposable, file, pos, editor -> MiscUtil.withAlternativeResolve(ctx.getProject(), () -> {
         int offset = editor.getCaretModel().getOffset();
         var elementToRename = EditorUtil.findTargetElement(editor, offset);
         if (elementToRename != null) {
@@ -68,7 +68,8 @@ public class RenameCommand extends LspCommand<WorkspaceEdit> {
           }
         }
         elementRef.set(elementToRename);
-      });
+        return null;
+      }));
     } finally {
       Disposer.dispose(disposable);
     }
@@ -86,7 +87,7 @@ public class RenameCommand extends LspCommand<WorkspaceEdit> {
     elemToName.forEach(renamer::addElement);
 
     LOG.warn("RenameCommand.execute: calling findUsages");
-    final UsageInfo[] usages = renamer.findUsages();
+    final UsageInfo[] usages = MiscUtil.withAlternativeResolve(ctx.getProject(), () -> renamer.findUsages());
     LOG.warn("RenameCommand.execute: findUsages returned " + usages.length + " usages");
     final var usageEdits = Arrays.stream(usages)
         .filter(usage -> !usage.isNonCodeUsage)
