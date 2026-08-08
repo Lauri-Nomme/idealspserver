@@ -292,7 +292,7 @@ public class MiscUtil {
    * results even on a freshly-started server.
    */
   public static void ensureIndexUpToDate(@NotNull Project project) {
-    var scope = GlobalSearchScope.allScope(project);
+    var scope = GlobalSearchScope.projectScope(project);
     var deadline = System.currentTimeMillis() + 300_000;
     for (int attempt = 0; attempt < 10 && System.currentTimeMillis() < deadline; attempt++) {
       ApplicationManager.getApplication().runReadAction(() -> {

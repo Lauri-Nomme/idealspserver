@@ -312,10 +312,12 @@ it.setTypeHierarchyProvider(true);
   private void notifyIndexFinishedWhenReady(@NotNull Project project) {
     com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService().execute(() -> {
       var deadline = System.currentTimeMillis() + 110_000;
-      // Require several consecutive idle samples so a brief gap between queued index
-      // tasks (or idle-before-scan) does not fool the readiness check.
-      final int requiredIdleSamples = 3;
-      int idleSamples = 0;
+      // Wait until the project is stable (Gradle import done, content roots set and
+      // files queued for indexing) AND the file-based indices are actually up to date.
+      // {@code ensureIndexUpToDate} blocks until the stub and word indices catch up
+      // with the current VFS state, so this is the authoritative "indexing done" wait.
+      // The idle probe guards against sounding ready during a brief gap between scan
+      // tasks.
       boolean ready = false;
       while (!ready && System.currentTimeMillis() < deadline) {
         try {
@@ -323,26 +325,14 @@ it.setTypeHierarchyProvider(true);
         } catch (Exception e) {
           LOG.warn("waitForProjectStability failed before index readiness check", e);
         }
-        if (MiscUtil.isSearchIndexReady(project)) {
-          idleSamples++;
-          if (idleSamples >= requiredIdleSamples) {
-            try {
-              // Confirm stability again so a freshly restarted import gets its turn.
-              ProjectService.getInstance().waitForProjectStability(project, 30_000);
-            } catch (Exception e) {
-              LOG.warn("waitForProjectStability failed during index readiness confirmation", e);
-            }
-            ready = MiscUtil.isSearchIndexReady(project);
-          }
-        } else {
-          idleSamples = 0;
-          try {
-            MiscUtil.ensureIndexUpToDate(project);
-          } catch (Exception e) {
-            LOG.warn("ensureIndexUpToDate failed during index readiness wait", e);
-          }
+        try {
+          MiscUtil.ensureIndexUpToDate(project);
+        } catch (Exception e) {
+          LOG.warn("ensureIndexUpToDate failed during index readiness wait", e);
         }
-        if (!ready) {
+        if (MiscUtil.isSearchIndexReady(project)) {
+          ready = true;
+        } else if (System.currentTimeMillis() < deadline) {
           try {
             Thread.sleep(2_000);
           } catch (InterruptedException ignored) {
