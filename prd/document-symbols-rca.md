@@ -314,3 +314,111 @@ off the lock during the sync window:
   mutate PSI outside a write command — tracked as a separate fix.
 - The Git/VCS background refresh after the `origin-new` force-push was an aggravating
   factor; it is external to this fix.
+
+## 8. Follow-up RCA: file-based index readiness for search commands on cold start
+
+The import/sync gate (above) fixed hang-on-starvation, but a **separate cold-start failure
+mode** surfaced next: `indexFinished` was sent as soon as the project exited dumb mode
+(smart mode), yet the file-based **word/symbol/derived-class** indices finish in the
+background *after* dumb mode ends. On a fresh server the very first index-dependent
+queries returned empty results (references, workspace symbols, type-definition, class
+hierarchies, cross-file rename).
+
+### 8.1 Symptom (CI, fully cold machine)
+
+```
+✗ Test  4: Definition
+✗ Test  5: References
+✗ Test  6: Workspace symbols
+✗ Test  7: Completion
+✗ Test  8: Hover
+✗ Test  9: Type definition - returns []
+✗ Test 42: Subtypes AbstractBase - result: []
+✗ Test 371: Cross-file Rename - got files: ['LspServer.java']
+```
+
+Individual probes on a cold server with `--tests 4,5,6,9,42,371` reproduced this, and the
+CI job (`server-tests.yaml` Python comprehensive) failed with the same set. Locally,
+clearing only `~/.cache/JetBrains/IntelliJIdea2026.1/index` reproduced part of it; clearing
+the **entire** `IntelliJIdea2026.1` cache reproduced it exactly (the CI condition).
+
+### 8.2 Two distinct index layers
+
+- **Dumb-stub index** (declaration resolution, `StubUpdatingIndex`) is guaranteed by
+  `DumbService`/smart mode. It alone does not cover reference search results.
+- **File-based indices** built lazily after startup: the word index (`IdIndex`,
+  `com.intellij.psi.impl.cache.impl.id.IdIndex`) used by reference search/rename, and the
+  **derived class/hierarchy indices** used by `JavaPsiFacade.findClass`,
+  `ClassInheritorsSearch` and workspace-symbol name lookup. These yield empty results until
+  the background scan populates them.
+
+### 8.3 Root cause: `indexFinished` fired before the file-based scan completed
+
+- Server sent `idea/indexFinished` at smart mode / dumb-mode exit, so tests began searching
+  while the word and derived indices were still empty.
+- `FileBasedIndex.getInstance().ensureUpToDate(id, project, scope)` **waits only for the
+  set of CHANGED files already queued**; on a freshly-opened project the initial content
+  scan is not yet registered, so the call returns immediately/vacuously. Evidence: a gate
+  probe polling `FileBasedIndex.getInstance().getFileBeingCurrentlyIndexed()` read `null`
+  (`idle=true`) at t≈0ms of the gate — before the scan was even scheduled — so an idle-based
+  readiness probe mis-fired and let the client through too early.
+- Waiting longer (50s/90s/120s of pure idle) did **not** help 9/42/371 on a fully-cold
+  machine: the derived class-index data was still not present, and those operations only
+  eventually succeed after the server has processed a full, activity-heavy suite (the
+  derived build is activity/lazily triggered, not simply time-gated).
+
+### 8.4 Fixes applied (all generic, no project-specific symbols)
+
+1. **`idea/indexFinished` readiness gate** — `LspServer.notifyIndexFinishedWhenReady(project)`
+   (background `AppExecutorUtil` task) now sends `indexFinished` only after:
+   - the project is stable (`ProjectService.waitForProjectStability`) so the Gradle import
+     and content-root setup have run, and
+   - a minimum settle floor has elapsed and `getFileBeingCurrentlyIndexed()` reads idle,
+     so the early "idle-before-scan" window cannot fool the gate.
+   It falls back to sending the notification on deadline/timeout so the client never hangs.
+2. **`MiscUtil.ensureIndexUpToDate(project)`** — forces `StubUpdatingIndex` (all scope,
+   project+libraries+SDK, for type/hierarchy/class resolution) and `IdIndex` (project scope,
+   for references) up to date. Calling it in the *request path* was found to **starve the
+   Gradle import** (holding the read lock while blocking on the write-based scan), so it is
+   invoked on the background gate thread and, before searches, in commands that run outside
+   a held read lock.
+3. **`withAlternativeResolve` (DumbService.withAlternativeResolveEnabled)** — already
+   committed (`51c7908`); wraps search/definition/rename commands so index-backed resolution
+   does not throw `IndexNotReadyException` and instead returns what is available.
+4. **`SubtypesCommand` scope fix** — `ClassInheritorsSearch` over `GlobalSearchScope.projectScope`
+   excludes files that are not registered content/source roots (e.g. `test-data` fixtures on a
+   freshly initialized machine); union the base class's own file scope so same-file inheritors
+   are found even when the fixture is not a declared source root.
+
+### 8.5 Verification
+
+- Local, clearing only `~/.cache/JetBrains/IntelliJIdea2026.1/index` (project caches
+  retained): **full comprehensive suite 52 passed / 0 failed** (three consecutive runs),
+  unit tests 114 passed / 2 skipped.
+- **Gotcha discovered:** adding an `import com.intellij.util.concurrency.AppExecutorUtil;`
+  line to `LspServer.java` shifts the `public class LspServer` declaration down one line,
+  breaking the hard-coded caret positions used by tests 5/16/371 (they point at an empty
+  line). Fixed by fully-qualifying `AppExecutorUtil` instead of importing it, keeping the
+  pre-class line count aligned with the tests. **Rule: do not add imports above the class
+  declaration in `LspServer.java` without updating the tests' positions.**
+
+### 8.6 Remaining: fully-cold derived-index gap (tests 9, 42, 371)
+
+On a fully cold machine (CI), after the import gate and index-ready gate are satisfied,
+`textDocument/typeDefinition` (Logger type), `typeHierarchy/subtypes` (AbstractBase), and
+cross-file rename (`languageServer.stop()` usage in `LspServerRunnerBase.java`) still return
+empty. The derived class/hierarchy index that these operations depend on is built lazily via
+internal IntelliJ plumbing and was not force-able through the public
+`ensureUpToDate(StubUpdatingIndex/IdIndex)` API. Candidate next steps (not yet landed):
+
+- Reflectively drive the derived index completion (e.g. via the internal
+  `com.intellij.util.indexing.PerProjectIndexingQueue` / `QueuedFiles.isEmpty()` as the
+  authoritative "initial scan drained" signal), per AGENTS.md's policy of using internal API
+  via reflection.
+- Or make the failing commands fall back to a direct index-independent PSI scan of the
+  relevant files (deliberately **not** shipped here — see decision).
+
+Outcome despite follow-ups: the gate + `ensureIndexUpToDate` + scope work moved the
+comprehensive suite from the pre-session CI state (4 failures) to **3 failures on a fully
+cold machine**, and to **52/52** locally with the usual (index-cleared, cache-retained)
+cold start.
