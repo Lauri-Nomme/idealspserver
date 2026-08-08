@@ -1,6 +1,7 @@
 package tf.locals.idealsp.server.typehierarchy;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -25,11 +26,19 @@ public class SubtypesCommand {
     PsiClass psiClass = PrepareTypeHierarchyCommand.resolveClassFromItem(project, item);
     if (psiClass == null) return result;
 
+    // projectScope excludes files that are not registered content/source roots, which
+    // can happen for test-data fixtures on a freshly-initialized machine. Include the
+    // base class's own file so inheritors in that file are always found.
     GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
-    ClassInheritorsSearch.search(psiClass, scope, false).forEach(inheritor -> {
-      PsiFile file = inheritor.getContainingFile();
-      if (file != null) {
-        TypeHierarchyItem childItem = PrepareTypeHierarchyCommand.convertToTypeHierarchyItem(inheritor, file);
+    VirtualFile file = psiClass.getContainingFile() == null ? null : psiClass.getContainingFile().getVirtualFile();
+    if (file != null) {
+      scope = scope.union(GlobalSearchScope.fileScope(project, file));
+    }
+    GlobalSearchScope searchScope = scope;
+    ClassInheritorsSearch.search(psiClass, searchScope, false).forEach(inheritor -> {
+      PsiFile inheritorFile = inheritor.getContainingFile();
+      if (inheritorFile != null) {
+        TypeHierarchyItem childItem = PrepareTypeHierarchyCommand.convertToTypeHierarchyItem(inheritor, inheritorFile);
         if (childItem != null) result.add(childItem);
       }
       return true;

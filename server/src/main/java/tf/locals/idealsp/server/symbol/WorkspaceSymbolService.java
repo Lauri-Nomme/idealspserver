@@ -63,6 +63,7 @@ final public class WorkspaceSymbolService {
         cancelToken -> {
           ProjectService.getInstance().ensureImportFinished(project);
           MiscUtil.waitForSmartMode(project, cancelToken);
+          MiscUtil.ensureIndexUpToDate(project);
           final var result = execute(pattern, cancelToken).stream()
               .map(WorkspaceSearchResult::symbol)
               .toList();

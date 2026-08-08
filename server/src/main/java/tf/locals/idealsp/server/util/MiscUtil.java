@@ -326,20 +326,4 @@ public class MiscUtil {
       }
     });
   }
-
-  /**
-   * Number of files the stub index currently covers for the project's own source.
-   * This grows as the background scan runs and is used to detect when the initial
-   * project scan has settled (the count stops changing), generically and without
-   * referencing any project-specific symbols.
-   */
-  public static int indexedProjectFileCount(@NotNull Project project) {
-    return ReadAction.compute(() -> {
-      try {
-        return FileBasedIndex.getInstance().getAllKeys(StubUpdatingIndex.INDEX_ID, project).size();
-      } catch (Exception e) {
-        return -1;
-      }
-    });
-  }
 }

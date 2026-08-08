@@ -49,6 +49,7 @@ public class RenameCommand extends LspCommand<WorkspaceEdit> {
   @Override
   protected @Nullable WorkspaceEdit execute(@NotNull ExecutorContext ctx) {
     LOG.warn("RenameCommand.execute: start");
+    MiscUtil.ensureIndexUpToDate(ctx.getProject());
     final var file = ctx.getPsiFile();
     Document doc = MiscUtil.getDocument(file);
     if (doc == null) {

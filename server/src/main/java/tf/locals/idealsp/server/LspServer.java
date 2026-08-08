@@ -312,13 +312,12 @@ it.setTypeHierarchyProvider(true);
   private void notifyIndexFinishedWhenReady(@NotNull Project project) {
     com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService().execute(() -> {
       var deadline = System.currentTimeMillis() + 110_000;
-      // Wait until the project is stable AND the initial file-based index scan has
-      // settled. The count of indexed project files grows while the scan runs and
-      // stops changing once it is complete; that is a generic "indexing done" signal
-      // that also waits for the SDK/derived indices (type resolution, hierarchies)
-      // that {@code ensureUpToDate} alone does not cover on a cold start.
-      int prevCount = -1;
-      int stableSamples = 0;
+      // Wait until the project is stable AND the file-based scan has actually settled.
+      // On a genuinely cold server the full scan (SDK, derived class/hierarchy indexes)
+      // runs for a minute or two; on a warm server it is a fast no-op. getFileBeingCurrentlyIndexed()
+      // can read as idle before the scan is even scheduled, so also require a minimum
+      // settle window before trusting the idle signal.
+      final long settleFloor = System.currentTimeMillis() + 60_000;
       boolean ready = false;
       while (!ready && System.currentTimeMillis() < deadline) {
         try {
@@ -331,23 +330,10 @@ it.setTypeHierarchyProvider(true);
         } catch (Exception e) {
           LOG.warn("ensureIndexUpToDate failed during index readiness wait", e);
         }
-        int count = MiscUtil.indexedProjectFileCount(project);
         boolean idle = MiscUtil.isSearchIndexReady(project);
-        LOG.warn("[GATE] count=" + count + " prev=" + prevCount + " idle=" + idle);
-        if (count == prevCount) {
-          if (idle && count > 0) {
-            stableSamples++;
-            if (stableSamples >= 2) {
-              ready = true;
-            }
-          } else {
-            stableSamples = 0;
-          }
-        } else {
-          stableSamples = 0;
-        }
-        prevCount = count;
-        if (!ready && System.currentTimeMillis() < deadline) {
+        if (idle && System.currentTimeMillis() >= settleFloor) {
+          ready = true;
+        } else if (System.currentTimeMillis() < deadline) {
           try {
             Thread.sleep(5_000);
           } catch (InterruptedException ignored) {

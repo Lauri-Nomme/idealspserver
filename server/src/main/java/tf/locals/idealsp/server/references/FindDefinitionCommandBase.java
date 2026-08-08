@@ -57,6 +57,7 @@ abstract class FindDefinitionCommandBase extends LspCommand<Either<List<? extend
   @Override
   protected @NotNull Either<List<? extends Location>, @NotNull List<? extends LocationLink>> execute(@NotNull ExecutorContext ctx) {
     MiscUtil.waitForSmartMode(ctx.getProject());
+    MiscUtil.ensureIndexUpToDate(ctx.getProject());
     PsiFile file = ctx.getPsiFile();
     var project = ctx.getProject();
     Document doc = MiscUtil.getDocument(file);
