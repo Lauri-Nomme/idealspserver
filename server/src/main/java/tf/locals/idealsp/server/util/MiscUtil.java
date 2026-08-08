@@ -292,12 +292,17 @@ public class MiscUtil {
    * results even on a freshly-started server.
    */
   public static void ensureIndexUpToDate(@NotNull Project project) {
-    var scope = GlobalSearchScope.projectScope(project);
+    var projectScope = GlobalSearchScope.projectScope(project);
+    var allScope = GlobalSearchScope.allScope(project);
     var deadline = System.currentTimeMillis() + 300_000;
     for (int attempt = 0; attempt < 10 && System.currentTimeMillis() < deadline; attempt++) {
       ApplicationManager.getApplication().runReadAction(() -> {
-        FileBasedIndex.getInstance().ensureUpToDate(StubUpdatingIndex.INDEX_ID, project, scope);
-        FileBasedIndex.getInstance().ensureUpToDate(IdIndex.NAME, project, scope);
+        // Stub index across all scopes (project + libraries + SDK): drives class
+        // resolution, type definitions, hierarchies and workspace symbols.
+        FileBasedIndex.getInstance().ensureUpToDate(StubUpdatingIndex.INDEX_ID, project, allScope);
+        // Word index across the project only (references within source): indexing the
+        // whole SDK's words would be far too slow.
+        FileBasedIndex.getInstance().ensureUpToDate(IdIndex.NAME, project, projectScope);
       });
     }
   }
@@ -318,6 +323,22 @@ public class MiscUtil {
         return FileBasedIndex.getInstance().getFileBeingCurrentlyIndexed() == null;
       } catch (Exception e) {
         return false;
+      }
+    });
+  }
+
+  /**
+   * Number of files the stub index currently covers for the project's own source.
+   * This grows as the background scan runs and is used to detect when the initial
+   * project scan has settled (the count stops changing), generically and without
+   * referencing any project-specific symbols.
+   */
+  public static int indexedProjectFileCount(@NotNull Project project) {
+    return ReadAction.compute(() -> {
+      try {
+        return FileBasedIndex.getInstance().getAllKeys(StubUpdatingIndex.INDEX_ID, project).size();
+      } catch (Exception e) {
+        return -1;
       }
     });
   }
