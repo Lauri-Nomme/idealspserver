@@ -113,11 +113,11 @@ public class LspServer implements IdeaLspServer, LanguageClientAware, LspSession
         project.getMessageBus().connect().subscribe(DumbService.DUMB_MODE, this);
 
         // If already smart, exitDumbMode fired before our subscription.
-        // Notify the client immediately so it doesn't hang waiting for indexFinished.
+        // Notify the client once the full index is ready so it doesn't hang
+        // waiting for indexFinished (nor start index-dependent tests too early).
         if (!DumbService.isDumb(project)) {
-          LOG.warn("Project already smart, sending notifyIndexFinished");
-          getClient().notifyIndexFinished();
-          LOG.warn("notifyIndexFinished sent");
+          LOG.warn("Project already smart, notifying indexFinished when index ready");
+          notifyIndexFinishedWhenReady(project);
         }
 
         LOG.info("LSP was initialized. Project: " + project);
@@ -292,8 +292,71 @@ it.setTypeHierarchyProvider(true);
   @Override
   public void exitDumbMode() {
     LOG.info("Exited dumb mode. Refreshing diagnostics...");
-    getClient().notifyIndexFinished();
+    if (project != null) {
+      notifyIndexFinishedWhenReady(project);
+    } else {
+      LOG.warn("Project not yet initialized, notifying client directly");
+      getClient().notifyIndexFinished();
+    }
     getTextDocumentService().refreshDiagnostics();
+  }
+
+  /**
+   * Sends the idea/indexFinished notification once the project is stable AND the
+   * file-based search index is provably usable. Runs on a background thread so the
+   * (potentially long) index build does not hold the read lock on the request path
+   * and starve the Gradle import, which would otherwise cause requests to be
+   * rejected. {@code ensureUpToDate} can return before the background index scan
+   * has been scheduled, so this polls a real index lookup until it succeeds.
+   */
+  private void notifyIndexFinishedWhenReady(@NotNull Project project) {
+    com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService().execute(() -> {
+      var deadline = System.currentTimeMillis() + 110_000;
+      // Require several consecutive idle samples so a brief gap between queued index
+      // tasks (or idle-before-scan) does not fool the readiness check.
+      final int requiredIdleSamples = 3;
+      int idleSamples = 0;
+      boolean ready = false;
+      while (!ready && System.currentTimeMillis() < deadline) {
+        try {
+          ProjectService.getInstance().waitForProjectStability(project, 30_000);
+        } catch (Exception e) {
+          LOG.warn("waitForProjectStability failed before index readiness check", e);
+        }
+        if (MiscUtil.isSearchIndexReady(project)) {
+          idleSamples++;
+          if (idleSamples >= requiredIdleSamples) {
+            try {
+              // Confirm stability again so a freshly restarted import gets its turn.
+              ProjectService.getInstance().waitForProjectStability(project, 30_000);
+            } catch (Exception e) {
+              LOG.warn("waitForProjectStability failed during index readiness confirmation", e);
+            }
+            ready = MiscUtil.isSearchIndexReady(project);
+          }
+        } else {
+          idleSamples = 0;
+          try {
+            MiscUtil.ensureIndexUpToDate(project);
+          } catch (Exception e) {
+            LOG.warn("ensureIndexUpToDate failed during index readiness wait", e);
+          }
+        }
+        if (!ready) {
+          try {
+            Thread.sleep(2_000);
+          } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+          }
+        }
+      }
+      if (ready) {
+        LOG.warn("Index ready, sending notifyIndexFinished");
+      } else {
+        LOG.warn("Timed out waiting for index readiness, notifying indexFinished anyway");
+      }
+      getClient().notifyIndexFinished();
+    });
   }
 
   public CompletableFuture<List<DataFlowLocation>> dataFlowFrom(@NotNull DataFlowParams params) {

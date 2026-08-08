@@ -1,6 +1,7 @@
 package tf.locals.idealsp.server.util;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.impl.DocumentImpl;
@@ -13,6 +14,10 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiNameIdentifierOwner;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.stubs.StubUpdatingIndex;
+import com.intellij.psi.impl.cache.impl.id.IdIndex;
+import com.intellij.util.indexing.FileBasedIndex;
 import org.eclipse.lsp4j.Location;
 import org.eclipse.lsp4j.LocationLink;
 import org.eclipse.lsp4j.Position;
@@ -276,5 +281,44 @@ public class MiscUtil {
     if (dumbService.isDumb()) {
       LOG.warn("Still in dumb mode after 600s wait, proceeding anyway");
     }
+  }
+
+  /**
+   * Blocks until the file-based search index is up to date for the whole project.
+   * Dumb mode only guarantees the stub index; the word/symbol indices used by
+   * reference search, workspace symbols and class hierarchies are built lazily in
+   * the background and may still be incomplete right after {@code indexFinished}.
+   * This forces those indices to finish so project-wide searches return complete
+   * results even on a freshly-started server.
+   */
+  public static void ensureIndexUpToDate(@NotNull Project project) {
+    var scope = GlobalSearchScope.allScope(project);
+    var deadline = System.currentTimeMillis() + 300_000;
+    for (int attempt = 0; attempt < 10 && System.currentTimeMillis() < deadline; attempt++) {
+      ApplicationManager.getApplication().runReadAction(() -> {
+        FileBasedIndex.getInstance().ensureUpToDate(StubUpdatingIndex.INDEX_ID, project, scope);
+        FileBasedIndex.getInstance().ensureUpToDate(IdIndex.NAME, project, scope);
+      });
+    }
+  }
+
+  /**
+   * Probes whether the project-wide file-based search index is currently quiescent and
+   * thus usable for index-backed searches (references, workspace symbols, hierarchies).
+   * {@code ensureUpToDate} alone can return before the background index scan has been
+   * scheduled, so this polls the real index state instead: it reports {@code true} only
+   * when the platform is not currently indexing any file. Callers should require the
+   * value to hold across several consecutive samples to avoid signaling readiness during
+   * a brief gap between queued index tasks.
+   */
+  public static boolean isSearchIndexReady(@NotNull Project project) {
+    if (DumbService.isDumb(project)) return false;
+    return ReadAction.compute(() -> {
+      try {
+        return FileBasedIndex.getInstance().getFileBeingCurrentlyIndexed() == null;
+      } catch (Exception e) {
+        return false;
+      }
+    });
   }
 }
